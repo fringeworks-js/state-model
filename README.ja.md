@@ -151,6 +151,26 @@ grouped.record('L-3').field('price').set(1200); // 行の編集は元のデー�
 - 中身（行と順番）が変わらないグループは、同じオブジェクトのまま返します。グループの部品を `memo` にすれば、変わったグループだけが描画し直します
 - 行のグループのキーを書き換えると、行は別のグループに移ります
 
+### 選択する
+
+`createListSelection` で、一覧の選択のモデルを作ります。選択は行を加工しない別の状態なので、派生モデルとは別のモデルにし、一覧（List のモデルや派生モデル）につなぎます。
+
+```ts
+import { createListSelection } from '@fringeworks/state-model';
+
+const selection = createListSelection(order.list('lines'), { multiple: true });
+
+selection.toggle('L-3');
+selection.get(); // 選んだ id（選んだ順）
+selection.records().get(); // 選んだ行
+order.list('lines').remove(selection.get()); // 選んだ行を削除する
+```
+
+- 1つの選択のモデルを表やチャートなどの部品に渡せば、選択を共有できます。部品ごとに作れば、別々の選択になります
+- 選んだ id は、置き場所のモデル（`selectedIds`。値が id の配列の Field のモデル）に持ちます。渡さなければ選択のモデルの中に持ちます。URL や親の state に持たせたいときは、制御の Field のモデルを渡します。同じ置き場所を渡せば、別々の選択のモデルから同じ選択を操作できます
+- 読むとき（`get()`・`has()`・`records()`）は、上流にある id だけを返します。データを取り直して同じ id の行が戻れば、選択も戻ります。置き場所に残った、上流に無い id は `removeMissing()` で外せます
+- 選択をどの一覧につなぐかで、読める選択が変わります。ふつうは List のモデル（データの場所）につなぎます。絞り込みで見えなくなった行の選択も読めます。派生モデルにつなぐと、見えている行の中で選んだものだけを読めます（置き場所には見えない行の id も残るので、絞り込みを外せば選択も戻ります）
+
 ### 編集しても当て直さない（入力画面）
 
 派生モデルは、上流が変わるとすぐ絞り込み・並べ替えを当て直します。入力画面では、絞り込みの条件から外れる値を入力した瞬間に行が消えたり、並べ替えのキーを編集した瞬間に行が飛んだりします。`filterRefresh`・`sortRefresh` を `'manual'` にすると、上流が変わっても当て直さず、`refresh()` を呼ぶか条件を差し替えたときに当て直します。
@@ -527,6 +547,40 @@ createGroupedList<E, K, S extends ListSource<E>>(
 | `records`  | `readonly E[]`      | グループの行（上流での順）                                              |
 | `ids`      | `readonly string[]` | グループの行の id の並び（id の無い行・重複した id の後の行は含めない） |
 
+### `createListSelection`
+
+```ts
+createListSelection<E, S extends ListSource<E>>(
+  source: S,
+  options?: ListSelectionOptions,
+): ListSelection<E, S>
+```
+
+一覧の選択のモデルを作ります。
+
+| オプション     | 型                                       | 説明                                                       |
+| -------------- | ---------------------------------------- | ---------------------------------------------------------- |
+| `multiple?`    | `boolean`                                | 複数の行を選べるようにする（既定は単一選択）               |
+| `selectedIds?` | `FieldModel<readonly string[], boolean>` | 選んだ id を置くモデル。渡さなければ選択のモデルの中に持つ |
+
+### `ListSelection<E, S>`
+
+一覧の選択のモデル。
+
+| メンバー                | 説明                                                                                   |
+| ----------------------- | -------------------------------------------------------------------------------------- |
+| `get()` / `subscribe()` | 選んだ id（上流にあるものだけ。選んだ順）                                              |
+| `set(ids)`              | 選択を丸ごと差し替える（前の選択を受け取る関数も渡せる）                               |
+| `select(id)`            | 選ぶ。単一選択なら差し替え、複数選択なら足す。上流に無い id は選ばない（開発時に警告） |
+| `deselect(id)`          | 外す                                                                                   |
+| `toggle(id)`            | 選んでいれば外し、選んでいなければ選ぶ                                                 |
+| `selectAll()`           | 上流の行をすべて選ぶ（複数選択のときだけ。単一選択では何もせず、開発時に警告）         |
+| `clear()`               | すべて外す                                                                             |
+| `has(id)`               | 選んでいるか                                                                           |
+| `records()`             | 選んだ行を読むモデル（選んだ順）                                                       |
+| `removeMissing()`       | 上流に無い id を、選んだ id の置き場所から外す                                         |
+| `source`                | つないだ上流のモデル                                                                   |
+
 ### 定義
 
 | 定義                  | 形                              | 説明                                                                                      |
@@ -566,6 +620,8 @@ createGroupedList<E, K, S extends ListSource<E>>(
 | `DerivedListOptions<E>`    | `createDerivedList` のオプション                           |
 | `ListSource<E>`            | 派生モデルの上流になれる一覧（`ListModel`・`DerivedList`） |
 | `RefreshMode`              | 派生モデルが上流の変化で当て直すか（`'auto'`・`'manual'`） |
+| `ListSelection<E, S>`      | 一覧の選択のモデル                                         |
+| `ListSelectionOptions`     | `createListSelection` のオプション                         |
 | `GroupedList<K, E, S>`     | グループ化した派生モデル                                   |
 | `GroupedListOptions<E, K>` | `createGroupedList` のオプション                           |
 | `ListGroup<K, E>`          | グループ化した派生モデルの、1つのグループ                  |

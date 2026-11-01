@@ -151,6 +151,26 @@ grouped.record('L-3').field('price').set(1200); // Edits reach the original data
 - A group whose content (records and their order) does not change is returned as the same object. If group components are `memo`, only the changed groups are rendered again
 - Changing the group key of a record moves the record to another group
 
+### Selecting
+
+`createListSelection` creates a selection model for a list. A selection does not change records, so it is a separate model from derived models, connected to a list (a List model or a derived model).
+
+```ts
+import { createListSelection } from '@fringeworks/state-model';
+
+const selection = createListSelection(order.list('lines'), { multiple: true });
+
+selection.toggle('L-3');
+selection.get(); // The selected ids (in the order selected)
+selection.records().get(); // The selected records
+order.list('lines').remove(selection.get()); // Removes the selected records
+```
+
+- Pass one selection model to components such as a table and a chart to share the selection. Create one per component for separate selections
+- The selected ids are kept in a model (`selectedIds`, a Field model whose value is an array of ids). If none is passed, the selection model keeps them itself. To keep them in the URL or the parent's state, pass a controlled Field model. Passing the same model lets separate selection models operate the same selection
+- Reading (`get()`, `has()`, `records()`) returns only ids in the source. If records with the same ids come back after reloading data, the selection comes back too. Ids not in the source that remain where the ids are kept can be removed with `removeMissing()`
+- What you can read depends on which list the selection is connected to. Usually connect it to the List model (the data location); the selection of records hidden by a filter can still be read. Connected to a derived model, only the selected records among the visible ones can be read (ids of hidden records remain where the ids are kept, so the selection comes back when the filter is removed)
+
 ### Not reapplying on edits (input screens)
 
 A derived model reapplies filtering and sorting as soon as its source changes. On an input screen, a record disappears the moment you enter a value that no longer matches the filter, and jumps the moment you edit its sort key. With `filterRefresh` and `sortRefresh` set to `'manual'`, the model does not reapply when the source changes, and reapplies when you call `refresh()` or replace a condition.
@@ -527,6 +547,40 @@ A group (`ListGroup<K, E>`) has the following properties.
 | `records` | `readonly E[]`      | The records of the group (in the source's order)                                               |
 | `ids`     | `readonly string[]` | The order of ids of the group's records (without records lacking an id or with a duplicate id) |
 
+### `createListSelection`
+
+```ts
+createListSelection<E, S extends ListSource<E>>(
+  source: S,
+  options?: ListSelectionOptions,
+): ListSelection<E, S>
+```
+
+Creates a selection model for a list.
+
+| Option         | Type                                     | Description                                                                                   |
+| -------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `multiple?`    | `boolean`                                | Allows selecting multiple records (single selection by default)                               |
+| `selectedIds?` | `FieldModel<readonly string[], boolean>` | A model that keeps the selected ids. If none is passed, the selection model keeps them itself |
+
+### `ListSelection<E, S>`
+
+A selection model for a list.
+
+| Member                  | Description                                                                                                                                              |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get()` / `subscribe()` | The selected ids (only those in the source, in the order selected)                                                                                       |
+| `set(ids)`              | Replaces the whole selection (also accepts a function that receives the previous selection)                                                              |
+| `select(id)`            | Selects. Replaces the selection for a single selection, adds for a multiple selection. Ids not in the source are not selected (warns during development) |
+| `deselect(id)`          | Deselects                                                                                                                                                |
+| `toggle(id)`            | Deselects if selected, selects otherwise                                                                                                                 |
+| `selectAll()`           | Selects all records of the source (multiple selections only; does nothing and warns for single selections)                                               |
+| `clear()`               | Deselects all                                                                                                                                            |
+| `has(id)`               | Whether the record is selected                                                                                                                           |
+| `records()`             | A model that reads the selected records (in the order selected)                                                                                          |
+| `removeMissing()`       | Removes ids not in the source from where the selected ids are kept                                                                                       |
+| `source`                | The connected source model                                                                                                                               |
+
 ### Definitions
 
 | Definition            | Shape                           | Description                                                                                                                                  |
@@ -566,6 +620,8 @@ Definitions are plain objects, so they can be created from JSON (unless `id` is 
 | `DerivedListOptions<E>`    | Options of `createDerivedList`                                                |
 | `ListSource<E>`            | A list that can be the source of a derived model (`ListModel`, `DerivedList`) |
 | `RefreshMode`              | Whether a derived model reapplies on source changes (`'auto'`, `'manual'`)    |
+| `ListSelection<E, S>`      | A selection model for a list                                                  |
+| `ListSelectionOptions`     | Options of `createListSelection`                                              |
 | `GroupedList<K, E, S>`     | The grouped derived model                                                     |
 | `GroupedListOptions<E, K>` | Options of `createGroupedList`                                                |
 | `ListGroup<K, E>`          | A group of the grouped derived model                                          |
