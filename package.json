@@ -1,0 +1,51 @@
+{
+  "name": "@fringeworks/state-model",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A library some will find handy, for holding the state of lists, forms, and fields in a standard shape (List / Record / Field) and updating it by path without mutation.",
+  "keywords": [
+    "state",
+    "immutable",
+    "list",
+    "form"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fringeworks-js/state-model.git"
+  },
+  "license": "MIT",
+  "author": "Mitsuhiro Seino",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*/index.ts"
+  },
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "scripts": {
+    "build": "tsdown",
+    "check": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\"",
+    "indexes": "tsx scripts/indexes.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "release": "pnpm build && npm publish ./dist",
+    "test": "vitest",
+    "tidy": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\" --config ./prettier.tidy.config.ts"
+  },
+  "dependencies": {
+    "@fringeworks/utils": "^2.1.0"
+  },
+  "devDependencies": {
+    "@fringeworks/dev": "^0.13.2",
+    "@types/node": "^25.9.9",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^10.12.0",
+    "prettier": "^3.9.10",
+    "tsdown": "^0.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
+  },
+  "packageManager": "pnpm@12.3.4+sha512.961aa41fb077da3a04a441d9f8e15ebc0c96da8ef710b2eb67bf9ee7cb0610eabd48f1fd85f51cffe73846785fa0f87c56a3a872a1d893f8446741b5cce45457"
+}
