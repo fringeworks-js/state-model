@@ -31,7 +31,7 @@ npm install @fringeworks/state-model
 
 | Term                       | Meaning                                                                                                                                                                                                                                                               |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root model                 | A model created with `createListModel`, `createRecordModel`, or `createFieldModel`. Only the root model is connected to the data, and it has `at()` and `receive()`                                                                                                   |
+| Root model                 | A model created with `createListModel`, `createRecordModel`, or `createFieldModel`. Only the root model is connected to the data, and it has `receive()`                                                                                                              |
 | Child model                | A model taken out of the root model with `list()`, `record()`, `field()`, or `at()`. Its reads and writes go to the root model                                                                                                                                        |
 | Path of keys and ids       | An array that tells where a value is in the data of the root model, listing record keys and list ids in order (e.g. `['lines', 'L-3', 'price']`). Array indexes are never used. Also called just "path" below                                                         |
 | The data a model points to | The value at the model's path, read with `get()`                                                                                                                                                                                                                      |
@@ -151,6 +151,32 @@ grouped.record('L-3').field('price').set(1200); // Edits reach the original data
 - A group whose content (records and their order) does not change is returned as the same object. If group components are `memo`, only the changed groups are rendered again
 - Changing the group key of a record moves the record to another group
 
+### Not reapplying on edits (input screens)
+
+A derived model reapplies filtering and sorting as soon as its source changes. On an input screen, a record disappears the moment you enter a value that no longer matches the filter, and jumps the moment you edit its sort key. With `filterRefresh` and `sortRefresh` set to `'manual'`, the model does not reapply when the source changes, and reapplies when you call `refresh()` or replace a condition.
+
+```ts
+const visible = createDerivedList(order.list('lines'), {
+  filter: (line) => line.price > 0,
+  sort: (a, b) => a.price - b.price,
+  filterRefresh: 'manual', // Keeps records that no longer match until reapplied
+  sortRefresh: 'manual', // Keeps the order until reapplied
+});
+
+visible.refresh(); // Reapplies the current conditions
+```
+
+| Change in the source                                        | Behavior when not reapplying                                                                          |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| A record's content changed (edited)                         | Keeps which records are in the result and their order, with the new content                           |
+| A record was removed                                        | It is removed from the result too                                                                     |
+| A record was added                                          | Appended at the end without the conditions (an added empty record is visible instead of filtered out) |
+| A condition or mode was replaced, or `refresh()` was called | Reapplies                                                                                             |
+
+- Filtering and sorting are chosen separately. To remove completed items immediately but not move items whose priority is edited, set only `sortRefresh` to `'manual'`
+- Grouped derived models have the same options. `filterRefresh` covers grouping (`groupBy`) and group filtering, and `sortRefresh` covers group sorting. With `'manual'`, a record whose group key is changed stays in its group until reapplied. A group with no records left disappears
+- Triggers such as "reapply when editing ends" are made on the UI side by calling `refresh()`
+
 ### Referring to your state (controlled)
 
 When you pass `data` and `onChangeData`, the model does not hold the data and asks the data owner to apply each write through `onChangeData`. When the data owner passes new data back, the model takes it with `receive`.
@@ -192,6 +218,7 @@ if (model.kind === 'field') {
 - **`record(id)` of a derived model**: it also points to records not in the result (filtered out). It returns the same object as `record(id)` of the original List model, so a form being edited keeps pointing to its record even if the filter changes. Use `ids()` to check whether a record is in the result
 - **Filter and sort functions**: they are called every time the result is rebuilt. Do not change records in them, and return the same answer for the same records. Sorting is stable, and records that compare equal keep the original order
 - **Without conditions**: when a derived model has no filter or sort condition (including after removing them), it returns the source value as is (the same array). A grouped derived model without `filterGroups` and `sortGroups` returns the result of grouping only. However, when the source is missing (an optional List that is `undefined`), it returns an empty array
+- **The result kept when not reapplying**: the last result built is kept. With subscribers, the result is built every time the source changes, so the result on screen is kept as is
 - **Group keys**: keys are compared by the same rule as `Map` (SameValueZero). When you use a key as a React `key`, convert it to a string with `String(group.key)` or similar if it is not a string
 - **Option names**: `data`, `defaultData`, and `onChangeData` may change during 0.x
 
@@ -270,21 +297,23 @@ Members common to the three model kinds (in addition to those of `ReadonlyModel`
 
 Members of `RecordModel`.
 
-| Method           | Description                    |
-| ---------------- | ------------------------------ |
-| `update(values)` | Changes several fields at once |
-| `field(key)`     | Model of a field               |
-| `record(key)`    | Model of a nested record       |
-| `list(key)`      | Model of a nested list         |
+| Method           | Description                                                              |
+| ---------------- | ------------------------------------------------------------------------ |
+| `update(values)` | Changes several fields at once                                           |
+| `field(key)`     | Model of a field                                                         |
+| `record(key)`    | Model of a nested record                                                 |
+| `list(key)`      | Model of a nested list                                                   |
+| `at(path)`       | Takes out a child model by a path of keys and ids relative to this model |
 
 Members of `ListModel`.
 
-| Method            | Description                       |
-| ----------------- | --------------------------------- |
-| `insert(records)` | Appends to the end                |
-| `remove(ids)`     | Removes all records with the ids  |
-| `record(id)`      | Model of the record with the id   |
-| `ids()`           | Model that reads the order of ids |
+| Method            | Description                                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------------------------- |
+| `insert(records)` | Appends to the end                                                                                       |
+| `remove(ids)`     | Removes all records with the ids                                                                         |
+| `record(id)`      | Model of the record with the id                                                                          |
+| `ids()`           | Model that reads the order of ids                                                                        |
+| `at(path)`        | Takes out a child model by a path of keys and ids relative to this model (the first step is a record id) |
 
 #### `update`
 
@@ -336,30 +365,33 @@ ids(): ReadonlyModel<readonly string[]>
 
 Returns a model that reads the order of ids. Its value changes only when records are added, removed, or reordered. When only the content of a record changes, it returns the same array.
 
-### `ModelRoot<D>`
-
-Members only the root model has.
-
-| Method          | Description                                         |
-| --------------- | --------------------------------------------------- |
-| `at(path)`      | Creates a child model from a path of keys and ids   |
-| `receive(data)` | When controlled, takes new data from the data owner |
-
 #### `at`
 
 ```ts
 at(path: readonly RecordId[]): UnknownModel
 ```
 
-Creates a child model from a path of keys and ids. Following the definition, each step is read as an id inside a List and as a key inside a Record. Where there is no definition, it follows keys (treating the value as a Record), and the last step becomes a Field. It returns the same object as following the path with `list()` and the like.
+Takes out a child model by a path of keys and ids relative to this model. Following the definition, each step is read as an id inside a List and as a key inside a Record. Where there is no definition, it follows keys (treating the value as a Record), and the last step becomes a Field. It returns the same object as following the path with `list()` and the like (`line.at(['price'])` and `order.at(['lines', 'L-3', 'price'])` are the same). An empty path returns the model itself. Field models do not have `at()`.
+
+### `ModelRoot<D>`
+
+Members only the root model has.
+
+| Method          | Description                                         |
+| --------------- | --------------------------------------------------- |
+| `receive(data)` | When controlled, takes new data from the data owner |
 
 #### `receive`
 
 ```ts
-receive(data: D): void
+receive(data: D, options?: ModelReceiveOptions): void
 ```
 
 When controlled, takes the data the data owner passed back. Discards pending data and notifies the subscribers of models whose values changed. On an uncontrolled root model, it does nothing (and warns during development).
+
+| Option    | Type      | Description                                                                                                                                                                                                                                |
+| --------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `silent?` | `boolean` | Takes the data but does not notify subscribers. Changes not notified yet are notified by the next `receive` (even with the same data). Used to take data during a React render and notify after it (the hooks of react-state-model use it) |
 
 ### `createDerivedList`
 
@@ -377,23 +409,29 @@ Creates a derived model that filters and sorts a list model.
 | `source`   | `S`                     | The source model (a `ListModel` or another `DerivedList`) |
 | `options?` | `DerivedListOptions<E>` | Options below                                             |
 
-| Option    | Type                     | Description                                                      |
-| --------- | ------------------------ | ---------------------------------------------------------------- |
-| `filter?` | `(record: E) => boolean` | The filter. Receives a record and returns `true` to keep it      |
-| `sort?`   | `(a: E, b: E) => number` | The sort order. A compare function, as in `Array.prototype.sort` |
+| Option           | Type                     | Description                                                                                                                    |
+| ---------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `filter?`        | `(record: E) => boolean` | The filter. Receives a record and returns `true` to keep it                                                                    |
+| `sort?`          | `(a: E, b: E) => number` | The sort order. A compare function, as in `Array.prototype.sort`                                                               |
+| `filterRefresh?` | `RefreshMode`            | Whether to reapply the filter when the source changes (defaults to `'auto'`). `'manual'` keeps which records are in the result |
+| `sortRefresh?`   | `RefreshMode`            | Whether to reapply the sort order when the source changes (defaults to `'auto'`). `'manual'` keeps the order                   |
 
 ### `DerivedList<E, S>`
 
 The standard derived model. In addition to the members of `ReadonlyModel<readonly E[]>`, it has the following.
 
-| Member              | Description                                             |
-| ------------------- | ------------------------------------------------------- |
-| `source`            | The connected source model                              |
-| `ids()`             | Model that reads the order of ids in the result         |
-| `record(id)`        | Model of the source's record with the id                |
-| `remove(ids)`       | Removes all records with the ids (passed to the source) |
-| `setFilter(filter)` | Replaces the filter                                     |
-| `setSort(sort)`     | Replaces the sort order                                 |
+| Member                   | Description                                                                                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source`                 | The connected source model                                                                                                                                  |
+| `ids()`                  | Model that reads the order of ids in the result                                                                                                             |
+| `record(id)`             | Model of the source's record with the id                                                                                                                    |
+| `remove(ids)`            | Removes all records with the ids (passed to the source)                                                                                                     |
+| `at(path)`               | Takes out a child model by a path relative to the source (passed to the source; the first step is a record id; an empty path returns the source List model) |
+| `setFilter(filter)`      | Replaces the filter                                                                                                                                         |
+| `setSort(sort)`          | Replaces the sort order                                                                                                                                     |
+| `setFilterRefresh(mode)` | Replaces whether to reapply the filter                                                                                                                      |
+| `setSortRefresh(mode)`   | Replaces whether to reapply the sort order                                                                                                                  |
+| `refresh()`              | Reapplies the current conditions                                                                                                                            |
 
 #### `ids`
 
@@ -428,6 +466,16 @@ setSort(sort: ((a: E, b: E) => number) | undefined): void
 
 Replaces a condition and notifies subscribers if the result changes. Passing `undefined` removes the condition (removing the sort order returns to the source's order).
 
+#### `setFilterRefresh` / `setSortRefresh` / `refresh`
+
+```ts
+setFilterRefresh(mode: RefreshMode): void
+setSortRefresh(mode: RefreshMode): void
+refresh(): void
+```
+
+Replaces whether to reapply, or reapplies the current conditions. Each of them rebuilds the result with the conditions at that time.
+
 ### `createGroupedList`
 
 ```ts
@@ -444,24 +492,30 @@ Creates a derived model that groups a list model. When `groupBy` is a key name, 
 | `source`  | `S`                        | The source model (a `ListModel` or `DerivedList`) |
 | `options` | `GroupedListOptions<E, K>` | Options below                                     |
 
-| Option          | Type                                                 | Description                                                                    |
-| --------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `groupBy`       | `GroupBy<E, K>`                                      | How to group. A key name, or a function that extracts the key from a record    |
-| `filterGroups?` | `(group: ListGroup<K, E>) => boolean`                | The group filter. Receives a group and returns `true` to keep it               |
-| `sortGroups?`   | `(a: ListGroup<K, E>, b: ListGroup<K, E>) => number` | The group sort order (defaults to the order of first appearance in the source) |
+| Option           | Type                                                 | Description                                                                                    |
+| ---------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `groupBy`        | `GroupBy<E, K>`                                      | How to group. A key name, or a function that extracts the key from a record                    |
+| `filterGroups?`  | `(group: ListGroup<K, E>) => boolean`                | The group filter. Receives a group and returns `true` to keep it                               |
+| `sortGroups?`    | `(a: ListGroup<K, E>, b: ListGroup<K, E>) => number` | The group sort order (defaults to the order of first appearance in the source)                 |
+| `filterRefresh?` | `RefreshMode`                                        | Whether to reapply grouping and group filtering when the source changes (defaults to `'auto'`) |
+| `sortRefresh?`   | `RefreshMode`                                        | Whether to reapply group sorting when the source changes (defaults to `'auto'`)                |
 
 ### `GroupedList<K, E, S>`
 
 The grouped derived model. In addition to the members of `ReadonlyModel<readonly ListGroup<K, E>[]>`, it has the following.
 
-| Member                          | Description                                             |
-| ------------------------------- | ------------------------------------------------------- |
-| `source`                        | The connected source model                              |
-| `record(id)`                    | Model of the source's record with the id                |
-| `remove(ids)`                   | Removes all records with the ids (passed to the source) |
-| `setGroupBy(groupBy)`           | Replaces how to group                                   |
-| `setFilterGroups(filterGroups)` | Replaces the group filter                               |
-| `setSortGroups(sortGroups)`     | Replaces the group sort order                           |
+| Member                          | Description                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| `source`                        | The connected source model                                                      |
+| `record(id)`                    | Model of the source's record with the id                                        |
+| `remove(ids)`                   | Removes all records with the ids (passed to the source)                         |
+| `at(path)`                      | Takes out a child model by a path relative to the source (passed to the source) |
+| `setGroupBy(groupBy)`           | Replaces how to group                                                           |
+| `setFilterGroups(filterGroups)` | Replaces the group filter                                                       |
+| `setSortGroups(sortGroups)`     | Replaces the group sort order                                                   |
+| `setFilterRefresh(mode)`        | Replaces whether to reapply grouping and group filtering                        |
+| `setSortRefresh(mode)`          | Replaces whether to reapply group sorting                                       |
+| `refresh()`                     | Reapplies the current conditions                                                |
 
 `record` and `remove` are the same as in `DerivedList`. Passing `undefined` to `setFilterGroups` or `setSortGroups` removes the condition (removing the sort order returns to the order of first appearance in the source).
 
@@ -492,6 +546,7 @@ Definitions are plain objects, so they can be created from JSON (unless `id` is 
 | `ListModel<E>`             | Model of a List                                                               |
 | `ReadonlyModel<V>`         | Something you can read and subscribe to                                       |
 | `ModelRoot<D>`             | Members only the root model has                                               |
+| `ModelReceiveOptions`      | Options of `receive`                                                          |
 | `UnknownModel`             | Model returned by `at()` (narrow it with `kind`)                              |
 | `ModelChangeEvent<V>`      | What a listener receives (`{ value, previousValue }`)                         |
 | `ModelListener<V>`         | A listener                                                                    |
@@ -510,6 +565,7 @@ Definitions are plain objects, so they can be created from JSON (unless `id` is 
 | `DerivedList<E, S>`        | The standard derived model                                                    |
 | `DerivedListOptions<E>`    | Options of `createDerivedList`                                                |
 | `ListSource<E>`            | A list that can be the source of a derived model (`ListModel`, `DerivedList`) |
+| `RefreshMode`              | Whether a derived model reapplies on source changes (`'auto'`, `'manual'`)    |
 | `GroupedList<K, E, S>`     | The grouped derived model                                                     |
 | `GroupedListOptions<E, K>` | Options of `createGroupedList`                                                |
 | `ListGroup<K, E>`          | A group of the grouped derived model                                          |

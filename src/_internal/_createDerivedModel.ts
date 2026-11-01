@@ -2,13 +2,25 @@ import type { ReadonlyModel } from '../types';
 import _createNotifier, { type NotifierSubscribe } from './_createNotifier';
 
 /**
- * 上流の値と状態から結果を作る純粋な関数\
- * previous は前に返した結果（初めは undefined）。結果が前と同じなら previous を返すと、購読者を呼ばずに済む
+ * 前に結果を作ったときの、上流の値・状態・結果
+ */
+export type DerivedPrevious<I, S, O> = {
+  readonly input: I;
+  readonly state: S;
+  readonly output: O;
+};
+
+/**
+ * 上流の値と状態から結果を作る純粋な関数
+ *
+ * previous は前に結果を作ったときの値（初めは undefined）。
+ * 結果が前と同じなら previous.output を返すと、購読者を呼ばずに済む。
+ * 状態は差し替えるたびに新しいオブジェクトになるので、previous.state と比べれば、状態を差し替えた後の作り直しかが分かる
  */
 export type DerivedCompute<I, S, O> = (
   input: I,
   state: S,
-  previous: O | undefined,
+  previous: DerivedPrevious<I, S, O> | undefined,
 ) => O;
 
 /**
@@ -28,19 +40,16 @@ export default function _createDerivedModel<I, S, O>(
 ) {
   const notifier = _createNotifier();
   let state = initialState;
-  let version = 0;
-  let cache:
-    | { readonly input: I; readonly version: number; readonly output: O }
-    | undefined;
+  let cache: DerivedPrevious<I, S, O> | undefined;
 
   const get = (): O => {
     const input = source.get();
     if (
       cache === undefined ||
       !Object.is(cache.input, input) ||
-      cache.version !== version
+      cache.state !== state
     ) {
-      cache = { input, version, output: compute(input, state, cache?.output) };
+      cache = { input, state, output: compute(input, state, cache) };
     }
     return cache.output;
   };
@@ -69,9 +78,11 @@ export default function _createDerivedModel<I, S, O>(
   };
 
   const getState = () => state;
+  /**
+   * 状態を差し替える。同じ値でも差し替えとして扱うので、状態はオブジェクトにして毎回作り直す
+   */
   const setState = (next: S) => {
     state = next;
-    version++;
     notifier.notify();
   };
 

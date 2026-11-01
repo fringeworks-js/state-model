@@ -139,6 +139,12 @@ export interface RecordModel<T, M extends boolean = false> extends ModelBase<
   list<K extends ListKeys<T>>(
     key: K,
   ): ListModel<ListItemOf<T[K]>, Or<M, IsMaybe<T[K]>>>;
+
+  /**
+   * このモデルからの相対的なキーと id のパスで、下位のモデルを取り出す。
+   * モデルの種類は定義をたどって実行時に決める（戻り値は `kind` で絞り込む）
+   */
+  at(path: readonly RecordId[]): UnknownModel;
 }
 
 /**
@@ -169,6 +175,12 @@ export interface ListModel<E, M extends boolean = false> extends ModelBase<
    * id の並び。行の中身が変わっただけなら同じ配列を返す
    */
   ids(): ReadonlyModel<readonly string[]>;
+
+  /**
+   * このモデルからの相対的なキーと id のパスで、下位のモデルを取り出す。
+   * モデルの種類は定義をたどって実行時に決める（戻り値は `kind` で絞り込む）
+   */
+  at(path: readonly RecordId[]): UnknownModel;
 }
 
 /**
@@ -184,15 +196,23 @@ export type UnknownModel =
  */
 export interface ModelRoot<D> {
   /**
-   * キーと id のパスからモデルを作る。モデルの種類は定義をたどって実行時に決める
-   */
-  at(path: readonly RecordId[]): UnknownModel;
-
-  /**
    * 外からデータを受け取る（制御のとき）。データの持ち主が渡し直したデータを受け取り、変わった所の購読者に知らせる
+   *
+   * `silent` を指定すると、データは受け取るが購読者には知らせない。知らせていない変化は、次の `receive` で
+   * （データが同じでも）知らせる。React の描画の中で受け取り、描画の後に知らせるときに使う
    */
-  receive(data: D): void;
+  receive(data: D, options?: ModelReceiveOptions): void;
 }
+
+/**
+ * `receive` のオプション
+ */
+export type ModelReceiveOptions = {
+  /**
+   * データを受け取るが、購読者には知らせない（次の `receive` で知らせる）
+   */
+  silent?: boolean;
+};
 
 // ---------------------------------------------------------------------------
 // 定義
@@ -237,3 +257,15 @@ export type DefinitionOf<V> =
       ? RecordDefinition<NonNullable<V>>
       : never)
   | ([ListItemOf<V>] extends [never] ? never : ListDefinition<ListItemOf<V>>);
+
+// ---------------------------------------------------------------------------
+// 派生モデル
+// ---------------------------------------------------------------------------
+
+/**
+ * 派生モデルが、上流が変わったときに条件を当て直すか
+ *
+ * - `'auto'`: すぐ当て直す
+ * - `'manual'`: 当て直さず、前の結果を保つ（`refresh()` か、条件を差し替えたときに当て直す）
+ */
+export type RefreshMode = 'auto' | 'manual';

@@ -108,14 +108,17 @@ function createModel(
           childDefinition,
         );
       });
-    return {
+    const recordModel: object = {
       ...base,
       update: (values: Record<string, unknown>) =>
         root.write(segments, _createUpdateRecordUpdater(values)),
       field: (key: string) => child('field', key),
       record: (key: string) => child('record', key),
       list: (key: string) => child('list', key),
+      at: (relativePath: readonly RecordId[]) =>
+        walkPath(recordModel, 'record', definition, relativePath),
     };
+    return recordModel;
   }
 
   const listDefinition = definition?.kind === 'list' ? definition : undefined;
@@ -143,26 +146,29 @@ function createModel(
       );
     },
     ids: () => children.get('ids', () => idsModel),
+    at: (relativePath: readonly RecordId[]) =>
+      walkPath(listModel, 'list', definition, relativePath),
   };
   _setListIdOf(listModel, idOf);
   return listModel;
 }
 
 /**
- * キーと id のパスからモデルを作る
+ * モデルからの相対的なキーと id のパスで、下位のモデルを取り出す（`at()`）
  *
  * - 定義をたどってモデルの種類を決める。List の中では id、Record の中ではキー
  * - 定義が無い所はキーでたどり（Record として扱う）、最後の段は Field にする
+ * - `list()` などでたどった場合と同じオブジェクトを返す
  */
-function at(
-  rootModel: object,
-  rootKind: ModelKind,
-  rootDefinition: AnyDefinition,
+function walkPath(
+  startModel: object,
+  startKind: 'record' | 'list',
+  startDefinition: AnyDefinition | undefined,
   path: readonly RecordId[],
 ): UnknownModel {
-  let model = rootModel as Traversable;
-  let kind: ModelKind = rootKind;
-  let definition: AnyDefinition | undefined = rootDefinition;
+  let model = startModel as Traversable;
+  let kind: ModelKind = startKind;
+  let definition: AnyDefinition | undefined = startDefinition;
   path.forEach((step, index) => {
     const last = index === path.length - 1;
     if (kind === 'list') {
@@ -219,6 +225,8 @@ export default function _createRootModel(
   let data: unknown = controlled ? options.data : options.defaultData;
   let pending: unknown = NONE;
   let resetScheduled = false;
+  // silent で受け取り、まだ購読者に知らせていない変化があるか
+  let unnotified = false;
 
   const core: RootCore = {
     read: () => data,
@@ -254,18 +262,20 @@ export default function _createRootModel(
   const rootModel = createModel(core, rootKind, [], [], definition);
 
   const rootOnly: ModelRoot<unknown> = {
-    at: (path) => at(rootModel, rootKind, definition, path),
-    receive: (next) => {
+    receive: (next, options) => {
       if (!controlled) {
         _warn('An uncontrolled model does not receive data.');
         return;
       }
       pending = NONE;
-      if (Object.is(next, data)) {
-        return;
+      if (!Object.is(next, data)) {
+        data = next;
+        unnotified = true;
       }
-      data = next;
-      notifier.notify();
+      if (unnotified && !options?.silent) {
+        unnotified = false;
+        notifier.notify();
+      }
     },
   };
   return Object.assign(rootModel, rootOnly);

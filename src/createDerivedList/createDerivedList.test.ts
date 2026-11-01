@@ -195,6 +195,19 @@ describe('createDerivedList', () => {
       expect(derived.ids().get()).toEqual(['L-2', 'L-1']);
     });
 
+    it('at() は上流に取り次ぎ、最初の段は行の id。結果に含まれない行も指す', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        filter: (line) => line.price >= 200,
+      });
+      expect(derived.at(['L-1', 'price'])).toBe(
+        lines.record('L-1').field('price'),
+      );
+      expect(createDerivedList(derived).at(['L-2'])).toBe(lines.record('L-2'));
+      // 空のパスなら、データの場所を持つ上流の List のモデル
+      expect(derived.at([])).toBe(lines);
+    });
+
     it('source は上流のモデル', () => {
       const { lines } = setup();
       expect(createDerivedList(lines).source).toBe(lines);
@@ -220,6 +233,124 @@ describe('createDerivedList', () => {
       expect(sorted.record('L-1')).toBe(lines.record('L-1'));
       sorted.remove(['L-3']);
       expect(lines.ids().get()).toEqual(['L-1', 'L-2']);
+    });
+  });
+
+  describe('当て直さないモード（filterRefresh・sortRefresh）', () => {
+    const lineIds = (rows: readonly Line[]) => rows.map((line) => line.lineId);
+
+    it('絞り込みを当て直さない: 条件から外れた行も残り、中身は新しくなる。refresh() で当て直す', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        filter: (line) => line.price >= 200,
+        filterRefresh: 'manual',
+      });
+      expect(lineIds(derived.get())).toEqual(['L-2', 'L-3']);
+      lines.record('L-2').field('price').set(1);
+      expect(lineIds(derived.get())).toEqual(['L-2', 'L-3']);
+      expect(derived.get()[0]!.price).toBe(1);
+      // 条件に合うようになった行も、当て直すまで入らない
+      lines.record('L-1').field('price').set(999);
+      expect(lineIds(derived.get())).toEqual(['L-2', 'L-3']);
+      derived.refresh();
+      expect(lineIds(derived.get())).toEqual(['L-1', 'L-3']);
+    });
+
+    it('並べ替えを当て直さない: 並べ替えのキーを編集しても動かない。refresh() で当て直す', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        sort: byPriceDesc,
+        sortRefresh: 'manual',
+      });
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2', 'L-1']);
+      lines.record('L-1').field('price').set(999);
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2', 'L-1']);
+      derived.refresh();
+      expect(lineIds(derived.get())).toEqual(['L-1', 'L-3', 'L-2']);
+    });
+
+    it('絞り込みはすぐ当て直し、並べ替えは保つ（ToDo の例）', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        filter: (line) => line.price > 0,
+        sort: byPriceDesc,
+        sortRefresh: 'manual',
+      });
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2', 'L-1']);
+      lines.record('L-3').field('price').set(1);
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2', 'L-1']);
+      lines.record('L-2').field('price').set(0);
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-1']);
+    });
+
+    it('絞り込みは保ち、並べ替えはすぐ当て直す', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        filter: (line) => line.price >= 200,
+        sort: byPrice,
+        filterRefresh: 'manual',
+      });
+      expect(lineIds(derived.get())).toEqual(['L-2', 'L-3']);
+      lines.record('L-3').field('price').set(1);
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2']);
+    });
+
+    it('足された行は条件を当てずに末尾に足し、消えた行は消える', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        filter: (line) => line.price >= 200,
+        sort: byPriceDesc,
+        filterRefresh: 'manual',
+        sortRefresh: 'manual',
+      });
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2']);
+      lines.insert([{ lineId: 'L-4', product: '', price: 0 }]);
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2', 'L-4']);
+      lines.remove(['L-3']);
+      expect(lineIds(derived.get())).toEqual(['L-2', 'L-4']);
+      expect(derived.ids().get()).toEqual(['L-2', 'L-4']);
+    });
+
+    it('条件やモードを差し替えると当て直す', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        sort: byPriceDesc,
+        filterRefresh: 'manual',
+        sortRefresh: 'manual',
+      });
+      lines.record('L-1').field('price').set(999);
+      derived.setFilter((line) => line.price >= 200);
+      expect(lineIds(derived.get())).toEqual(['L-1', 'L-3', 'L-2']);
+
+      lines.record('L-2').field('price').set(1);
+      expect(lineIds(derived.get())).toEqual(['L-1', 'L-3', 'L-2']);
+      derived.setFilterRefresh('auto');
+      expect(lineIds(derived.get())).toEqual(['L-1', 'L-3']);
+    });
+
+    it('条件が無ければ、当て直さないモードでも上流をそのまま返す', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        filterRefresh: 'manual',
+        sortRefresh: 'manual',
+      });
+      lines.record('L-1').field('price').set(999);
+      expect(derived.get()).toBe(lines.get());
+    });
+
+    it('当て直さないときも、変わった行は知らせる。id の並びは変わらない', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        sort: byPriceDesc,
+        sortRefresh: 'manual',
+      });
+      const listener = vi.fn();
+      const idsListener = vi.fn();
+      derived.subscribe(listener);
+      derived.ids().subscribe(idsListener);
+      lines.record('L-1').field('price').set(999);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(idsListener).not.toHaveBeenCalled();
     });
   });
 });

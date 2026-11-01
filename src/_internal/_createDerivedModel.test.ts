@@ -41,17 +41,24 @@ describe('_createDerivedModel', () => {
     expect(compute).toHaveBeenCalledTimes(3);
   });
 
-  it('前の結果を compute に渡す', () => {
+  it('前の上流の値・状態・結果を compute に渡す', () => {
     const { source, set } = createSource(1);
     const compute = vi.fn(
-      (input: number, _state: null, previous: number | undefined) =>
-        previous ?? input,
+      (
+        input: number,
+        _state: null,
+        previous: { input: number; output: number } | undefined,
+      ) => previous?.output ?? input,
     );
     const derived = _createDerivedModel(source, null, compute);
     derived.get();
     set(2);
     expect(derived.get()).toBe(1);
-    expect(compute).toHaveBeenLastCalledWith(2, null, 1);
+    expect(compute).toHaveBeenLastCalledWith(2, null, {
+      input: 1,
+      state: null,
+      output: 1,
+    });
   });
 
   it('購読者がいる間だけ上流を購読する', () => {

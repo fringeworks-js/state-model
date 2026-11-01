@@ -1,4 +1,7 @@
-import _createDerivedModel from '../_internal/_createDerivedModel';
+import _arrangeItems from '../_internal/_arrangeItems';
+import _createDerivedModel, {
+  type DerivedPrevious,
+} from '../_internal/_createDerivedModel';
 import type { IdOf } from '../_internal/_createIdOf';
 import _getListIndex from '../_internal/_getListIndex';
 import { _getListIdOf } from '../_internal/_listIdOf';
@@ -11,7 +14,28 @@ import type {
   ListGroup,
 } from './types';
 
-type ArrangeState<E, K> = Omit<GroupedListOptions<E, K>, 'groupBy'>;
+/**
+ * グループ化した派生モデルの状態（2つの段で共有する）
+ */
+type State<E, K> = Required<
+  Pick<GroupedListOptions<E, K>, 'groupBy' | 'filterRefresh' | 'sortRefresh'>
+> &
+  Pick<GroupedListOptions<E, K>, 'filterGroups' | 'sortGroups'>;
+
+/**
+ * 1段目の結果: すべてのグループと、それを作ったときの状態（2段目に状態を渡すため）
+ */
+type Grouping<E, K> = {
+  readonly groups: readonly ListGroup<K, E>[];
+  readonly state: State<E, K>;
+};
+
+const EMPTY: readonly never[] = Object.freeze([]);
+
+/**
+ * キーが undefined のグループも、キーで追えるようにするための代わりの値
+ */
+const UNDEFINED_KEY = Symbol('undefined');
 
 function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index]);
@@ -26,20 +50,45 @@ function toKeyFunction<E, K>(groupBy: GroupBy<E, K>): (record: E) => K {
 /**
  * 1段目: 上流の行をグループに分ける
  *
- * - グループは上流での最初の出現順
+ * - グループは上流での最初の出現順。グループの中の行は上流の順
+ * - グループ分けを当て直さないモードでは、前に入っていたグループに行を残す（グループのキーを書き換えた行も動かない）。
+ *   上流に新しく足された行は、今のキーのグループに入れる。行の無いグループは作らない
  * - 中身（行の参照と順番）が前と同じグループは、前のオブジェクトを返す
- * - グループと順番が前と同じなら、前の配列を返す
+ * - グループと状態が前と同じなら、前の結果を返す
  */
 function createGroupRecords<E, K>(idOf: IdOf) {
   return (
     rows: readonly E[] | undefined,
-    groupBy: GroupBy<E, K>,
-    previous: readonly ListGroup<K, E>[] | undefined,
-  ): readonly ListGroup<K, E>[] => {
-    const keyOf = toKeyFunction(groupBy);
+    state: State<E, K>,
+    previous:
+      | DerivedPrevious<readonly E[] | undefined, State<E, K>, Grouping<E, K>>
+      | undefined,
+  ): Grouping<E, K> => {
+    const keyOf = toKeyFunction(state.groupBy);
+    const hold =
+      previous !== undefined &&
+      previous.state === state &&
+      state.filterRefresh === 'manual';
+
+    // 当て直さないモードで、前に行が入っていたグループ（id の無い行・新しく足された行は、今のキーで分ける）
+    const previousKeyById = new Map<string, K>();
+    if (hold) {
+      for (const group of previous.output.groups) {
+        for (const id of group.ids) {
+          previousKeyById.set(id, group.key);
+        }
+      }
+    }
+    const groupKeyOf = (record: E): K => {
+      const id = hold ? idOf(record) : undefined;
+      return id !== undefined && previousKeyById.has(id)
+        ? (previousKeyById.get(id) as K)
+        : keyOf(record);
+    };
+
     const buckets = new Map<K, E[]>();
-    for (const record of rows ?? []) {
-      const key = keyOf(record);
+    for (const record of rows ?? EMPTY) {
+      const key = groupKeyOf(record);
       let bucket = buckets.get(key);
       if (bucket === undefined) {
         bucket = [];
@@ -49,7 +98,7 @@ function createGroupRecords<E, K>(idOf: IdOf) {
     }
 
     const previousByKey = new Map<K, ListGroup<K, E>>();
-    for (const group of previous ?? []) {
+    for (const group of previous?.output.groups ?? EMPTY) {
       previousByKey.set(group.key, group);
     }
     const groups: ListGroup<K, E>[] = [];
@@ -61,36 +110,47 @@ function createGroupRecords<E, K>(idOf: IdOf) {
           : { key, records, ids: _getListIndex(records, idOf, true).ids },
       );
     }
-    return previous !== undefined && sameItems(previous, groups)
-      ? previous
-      : groups;
+
+    if (
+      previous !== undefined &&
+      previous.output.state === state &&
+      sameItems(previous.output.groups, groups)
+    ) {
+      return previous.output;
+    }
+    return {
+      groups:
+        previous !== undefined && sameItems(previous.output.groups, groups)
+          ? previous.output.groups
+          : groups,
+      state,
+    };
   };
 }
 
 /**
- * 2段目: グループを絞り込み・並べ替える\
- * 条件が無ければ1段目の結果をそのまま返す。条件があり、結果のグループと順番が前と同じなら、前の配列を返す
+ * 2段目: グループを絞り込み・並べ替える（`_arrangeItems` を参照）
+ *
+ * 当て直さないモードでも、状態を差し替えた後（条件・モードの差し替え、`refresh()`）は当て直す
  */
 function arrangeGroups<E, K>(
-  groups: readonly ListGroup<K, E>[],
-  { filterGroups, sortGroups }: ArrangeState<E, K>,
-  previous: readonly ListGroup<K, E>[] | undefined,
+  { groups, state }: Grouping<E, K>,
+  _: null,
+  previous:
+    | DerivedPrevious<Grouping<E, K>, null, readonly ListGroup<K, E>[]>
+    | undefined,
 ): readonly ListGroup<K, E>[] {
-  // 条件が無ければ、1段目の結果（すべてのグループ）をそのまま返す（前の結果より優先する）
-  if (!filterGroups && !sortGroups) {
-    return groups;
-  }
-  let result: readonly ListGroup<K, E>[] = filterGroups
-    ? groups.filter((group) => filterGroups(group))
-    : groups;
-  if (sortGroups) {
-    result = (
-      result === groups ? groups.slice() : (result as ListGroup<K, E>[])
-    ).sort(sortGroups);
-  }
-  return previous !== undefined && sameItems(previous, result)
-    ? previous
-    : result;
+  const stateChanged = previous !== undefined && previous.input.state !== state;
+  return _arrangeItems({
+    items: groups,
+    filter: state.filterGroups,
+    sort: state.sortGroups,
+    holdFilter: !stateChanged && state.filterRefresh === 'manual',
+    holdSort: !stateChanged && state.sortRefresh === 'manual',
+    previousItems: previous?.input.groups,
+    previousOutput: previous?.output,
+    keyOf: (group) => (group.key === undefined ? UNDEFINED_KEY : group.key),
+  });
 }
 
 /**
@@ -98,13 +158,16 @@ function arrangeGroups<E, K>(
  *
  * - 行の絞り込み・並べ替えは上流（`createDerivedList`）で行い、グループの絞り込み・並べ替えはここで行う
  * - 中身が変わらないグループは、同じオブジェクトのまま返す
+ * - `filterRefresh`・`sortRefresh` を `'manual'` にすると、上流が変わっても当て直さず、
+ *   `refresh()` か条件の差し替えで当て直す（入力画面で、編集した行が別のグループに移ったりしないように）
  * - 行の編集は `record(id)`（上流の行のモデル）で、削除は `remove(ids)` で上流に取り次ぐ
  *
  * 中は2段の派生モデル（グループに分ける段と、グループを絞り込み・並べ替える段）。
- * 1段目の結果がすべてのグループなので、絞り込まれたグループも同じオブジェクトのまま覚えておける
+ * 1段目の結果がすべてのグループなので、絞り込まれたグループも同じオブジェクトのまま覚えておける。
+ * 状態は1段目に持ち、結果に添えて2段目に渡す（状態を差し替えたときに、1回で両方の段を作り直すため）
  *
  * @param source 上流のモデル（`ListModel` か `DerivedList`）
- * @param options グループの分け方と、グループの絞り込み・並べ替えの条件
+ * @param options グループの分け方と、グループの絞り込み・並べ替えの条件、当て直すか
  * @returns 派生モデル
  */
 export default function createGroupedList<
@@ -129,10 +192,20 @@ export default function createGroupedList<E, K>(
 ): GroupedList<K, E> {
   const grouping = _createDerivedModel<
     readonly E[] | undefined,
-    GroupBy<E, K>,
-    readonly ListGroup<K, E>[]
-  >(source, options.groupBy, createGroupRecords<E, K>(_getListIdOf(source)));
-  const allGroups: ReadonlyModel<readonly ListGroup<K, E>[]> = {
+    State<E, K>,
+    Grouping<E, K>
+  >(
+    source,
+    {
+      groupBy: options.groupBy,
+      filterGroups: options.filterGroups,
+      sortGroups: options.sortGroups,
+      filterRefresh: options.filterRefresh ?? 'auto',
+      sortRefresh: options.sortRefresh ?? 'auto',
+    },
+    createGroupRecords<E, K>(_getListIdOf(source)),
+  );
+  const allGroups: ReadonlyModel<Grouping<E, K>> = {
     get: grouping.get,
     subscribe: (listener) =>
       grouping.subscribe(
@@ -141,14 +214,12 @@ export default function createGroupedList<E, K>(
       ),
   };
   const arranging = _createDerivedModel<
-    readonly ListGroup<K, E>[],
-    ArrangeState<E, K>,
+    Grouping<E, K>,
+    null,
     readonly ListGroup<K, E>[]
-  >(
-    allGroups,
-    { filterGroups: options.filterGroups, sortGroups: options.sortGroups },
-    arrangeGroups,
-  );
+  >(allGroups, null, arrangeGroups);
+  const update = (values: Partial<State<E, K>>) =>
+    grouping.setState({ ...grouping.getState(), ...values });
 
   return {
     source,
@@ -160,10 +231,12 @@ export default function createGroupedList<E, K>(
       ),
     record: (id: RecordId) => source.record(id),
     remove: (ids: readonly RecordId[]) => source.remove(ids),
-    setGroupBy: (groupBy) => grouping.setState(groupBy),
-    setFilterGroups: (filterGroups) =>
-      arranging.setState({ ...arranging.getState(), filterGroups }),
-    setSortGroups: (sortGroups) =>
-      arranging.setState({ ...arranging.getState(), sortGroups }),
+    at: (path: readonly RecordId[]) => source.at(path),
+    setGroupBy: (groupBy) => update({ groupBy }),
+    setFilterGroups: (filterGroups) => update({ filterGroups }),
+    setSortGroups: (sortGroups) => update({ sortGroups }),
+    setFilterRefresh: (filterRefresh) => update({ filterRefresh }),
+    setSortRefresh: (sortRefresh) => update({ sortRefresh }),
+    refresh: () => update({}),
   };
 }

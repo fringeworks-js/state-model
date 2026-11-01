@@ -169,11 +169,112 @@ describe('createGroupedList', () => {
       expect(keys(grouped.get())).toEqual(['C-2', 'C-3']);
     });
 
+    it('at() は上流に取り次ぐ', () => {
+      const items = createItems();
+      const grouped = createGroupedList(items, { groupBy: 'category' });
+      expect(grouped.at(['I-1', 'price'])).toBe(
+        items.record('I-1').field('price'),
+      );
+    });
+
     it('source は上流のモデル', () => {
       const items = createItems();
       expect(createGroupedList(items, { groupBy: 'category' }).source).toBe(
         items,
       );
+    });
+  });
+
+  describe('当て直さないモード（filterRefresh・sortRefresh）', () => {
+    const pairs = (
+      groups: readonly { key: unknown; ids: readonly string[] }[],
+    ) => groups.map((group) => [group.key, group.ids]);
+
+    it('グループ分けを当て直さない: キーを書き換えた行も元のグループに残る。refresh() で移る', () => {
+      const items = createItems();
+      const grouped = createGroupedList(items, {
+        groupBy: 'category',
+        filterRefresh: 'manual',
+      });
+      // 当て直さないモードは、最後に作った結果を保つ（購読者がいなければ、読んだときに作る）
+      grouped.get();
+      items.record('I-1').field('category').set('C-2');
+      expect(pairs(grouped.get())).toEqual([
+        ['C-1', ['I-1', 'I-4']],
+        ['C-2', ['I-2', 'I-5']],
+        ['C-3', ['I-3', 'I-6']],
+      ]);
+      expect(grouped.get()[0]!.records[0]!.category).toBe('C-2');
+      grouped.refresh();
+      expect(pairs(grouped.get())).toEqual([
+        ['C-2', ['I-1', 'I-2', 'I-5']],
+        ['C-3', ['I-3', 'I-6']],
+        ['C-1', ['I-4']],
+      ]);
+    });
+
+    it('行が無くなったグループは消え、足された行は今のキーのグループに入る', () => {
+      const items = createItems();
+      const grouped = createGroupedList(items, {
+        groupBy: 'category',
+        filterRefresh: 'manual',
+      });
+      grouped.get();
+      items.remove(['I-1', 'I-4']);
+      expect(keys(grouped.get())).toEqual(['C-2', 'C-3']);
+      items.insert([
+        { id: 'I-7', category: 'C-9', price: 1 },
+        { id: 'I-8', category: 'C-2', price: 1 },
+      ]);
+      expect(pairs(grouped.get())).toEqual([
+        ['C-2', ['I-2', 'I-5', 'I-8']],
+        ['C-3', ['I-3', 'I-6']],
+        ['C-9', ['I-7']],
+      ]);
+    });
+
+    it('グループの絞り込みを当て直さない: 条件から外れたグループも残る', () => {
+      const items = createItems();
+      const grouped = createGroupedList(items, {
+        groupBy: 'category',
+        filterGroups: (group) => total(group.records) >= 600,
+        filterRefresh: 'manual',
+      });
+      expect(keys(grouped.get())).toEqual(['C-2', 'C-3']);
+      items.record('I-5').field('price').set(1);
+      expect(keys(grouped.get())).toEqual(['C-2', 'C-3']);
+      grouped.refresh();
+      expect(keys(grouped.get())).toEqual(['C-3']);
+    });
+
+    it('グループの並べ替えを当て直さない: 合計が変わっても並びを保つ', () => {
+      const items = createItems();
+      const grouped = createGroupedList(items, {
+        groupBy: 'category',
+        sortGroups: (a, b) => total(b.records) - total(a.records),
+        sortRefresh: 'manual',
+      });
+      expect(keys(grouped.get())).toEqual(['C-3', 'C-2', 'C-1']);
+      items.record('I-1').field('price').set(9999);
+      expect(keys(grouped.get())).toEqual(['C-3', 'C-2', 'C-1']);
+      grouped.refresh();
+      expect(keys(grouped.get())).toEqual(['C-1', 'C-3', 'C-2']);
+    });
+
+    it('グループの分け方を差し替えると、1回の通知で当て直す', () => {
+      const items = createItems();
+      const grouped = createGroupedList(items, {
+        groupBy: 'category',
+        filterGroups: (group) => group.records.length >= 2,
+        filterRefresh: 'manual',
+        sortRefresh: 'manual',
+      });
+      const listener = vi.fn();
+      grouped.subscribe(listener);
+      grouped.setGroupBy((item) => (item.price > 100 ? 'high' : 'low'));
+      expect(listener).toHaveBeenCalledTimes(1);
+      // 1件だけの 'low' は、絞り込みで消える
+      expect(keys(grouped.get())).toEqual(['high']);
     });
   });
 });

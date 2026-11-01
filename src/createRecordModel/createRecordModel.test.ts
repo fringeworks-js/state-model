@@ -39,6 +39,16 @@ describe('createRecordModel', () => {
       expect(order.field('customer').kind).toBe('field');
     });
 
+    it('下位のモデルの at() は、そのモデルからの相対パスで指す', () => {
+      const order = createUncontrolled();
+      const lines = order.list('lines');
+      const line = lines.record('L-2');
+      expect(line.at(['price'])).toBe(line.field('price'));
+      expect(lines.at(['L-2', 'price'])).toBe(line.field('price'));
+      expect(order.record('shipping').at(['zip']).get()).toBe('100');
+      expect(line.at([])).toBe(line);
+    });
+
     it('同じパスなら同じオブジェクト。at() も同じものを返す', () => {
       const order = createUncontrolled();
       const line = order.list('lines').record('L-2');
@@ -293,6 +303,34 @@ describe('createRecordModel', () => {
       // 受け取った後の書き込みは、受け取ったデータの上に作る
       order.field('orderId').set('O-2');
       expect(changes[changes.length - 1]!.customer).toBe('Alice');
+    });
+
+    it('silent で受け取ると知らせず、次の receive で（データが同じでも）知らせる', () => {
+      const initial = createOrder();
+      const order = createRecordModel(orderDefinition, {
+        data: initial,
+        onChangeData: () => {},
+      });
+      const onCustomer = vi.fn();
+      const onShipping = vi.fn();
+      order.field('customer').subscribe(onCustomer);
+      order.record('shipping').subscribe(onShipping);
+
+      const next = { ...initial, customer: 'Bob' };
+      order.receive(next, { silent: true });
+      expect(order.get()).toBe(next);
+      expect(onCustomer).not.toHaveBeenCalled();
+
+      order.receive(next);
+      expect(onCustomer).toHaveBeenCalledWith({
+        value: 'Bob',
+        previousValue: 'Alice',
+      });
+      expect(onShipping).not.toHaveBeenCalled();
+
+      // 知らせた後は、同じデータなら知らせない
+      order.receive(next);
+      expect(onCustomer).toHaveBeenCalledTimes(1);
     });
 
     it('同じデータを受け取ったときは知らせない', () => {

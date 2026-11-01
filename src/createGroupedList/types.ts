@@ -1,5 +1,11 @@
 import type { ListSource } from '../createDerivedList';
-import type { ReadonlyModel, RecordId, RecordModel } from '../types';
+import type {
+  ReadonlyModel,
+  RecordId,
+  RecordModel,
+  RefreshMode,
+  UnknownModel,
+} from '../types';
 
 /**
  * グループ化した派生モデルの、1つのグループ
@@ -44,6 +50,18 @@ export type GroupedListOptions<E, K> = {
    * グループの並べ替えの条件。グループを2つ受け取る比較の関数（既定は上流での出現順）
    */
   sortGroups?: (a: ListGroup<K, E>, b: ListGroup<K, E>) => number;
+
+  /**
+   * 上流が変わったときに、グループ分け（`groupBy`）とグループの絞り込みを当て直すか（既定は `'auto'`）。
+   * `'manual'` なら、行が入るグループと、結果に入るグループを保つ（グループのキーを書き換えた行も元のグループに残る）
+   */
+  filterRefresh?: RefreshMode;
+
+  /**
+   * 上流が変わったときに、グループの並べ替えを当て直すか（既定は `'auto'`）。
+   * `'manual'` なら、グループの並び順を保つ（新しく入ったグループは末尾に足す）
+   */
+  sortRefresh?: RefreshMode;
 };
 
 /**
@@ -70,6 +88,11 @@ export interface GroupedList<
   remove(ids: readonly RecordId[]): void;
 
   /**
+   * 上流からの相対的なキーと id のパスで、下位のモデルを取り出す（上流に取り次ぐ。最初の段は行の id）
+   */
+  at(path: readonly RecordId[]): UnknownModel;
+
+  /**
    * グループの分け方を差し替える
    */
   setGroupBy(groupBy: GroupBy<E, K>): void;
@@ -83,4 +106,19 @@ export interface GroupedList<
    * グループの並べ替えの条件を差し替える。undefined を渡すと条件を外す（上流での出現順に戻る）
    */
   setSortGroups(sortGroups: GroupedListOptions<E, K>['sortGroups']): void;
+
+  /**
+   * グループ分けとグループの絞り込みを当て直すかを差し替える
+   */
+  setFilterRefresh(filterRefresh: RefreshMode): void;
+
+  /**
+   * グループの並べ替えを当て直すかを差し替える
+   */
+  setSortRefresh(sortRefresh: RefreshMode): void;
+
+  /**
+   * 今の条件を当て直す（当て直さないモードで保っていた結果を、作り直す）
+   */
+  refresh(): void;
 }
