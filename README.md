@@ -171,6 +171,27 @@ order.list('lines').remove(selection.get()); // Removes the selected records
 - Reading (`get()`, `has()`, `records()`) returns only ids in the source. If records with the same ids come back after reloading data, the selection comes back too. Ids not in the source that remain where the ids are kept can be removed with `removeMissing()`
 - What you can read depends on which list the selection is connected to. Usually connect it to the List model (the data location); the selection of records hidden by a filter can still be read. Connected to a derived model, only the selected records among the visible ones can be read (ids of hidden records remain where the ids are kept, so the selection comes back when the filter is removed)
 
+### Knowing whether values are dirty or touched
+
+`createModelStatus` creates a status model connected to a model. For every path under it, you can read whether the value is dirty and whether it is touched.
+
+```ts
+import { createModelStatus } from '@fringeworks/state-model';
+
+const status = createModelStatus(order);
+
+status.dirty().get(); // Whether anything in the form is dirty
+status.dirty(['lines', 'L-3']).get(); // Whether line L-3 is dirty
+status.touch(['customer']); // Marks it as touched (the UI calls it, e.g. when focus leaves)
+status.touched(['lines']).get(); // Whether anything in the lines is touched
+status.markClean(); // Makes the current data the baseline, e.g. after saving
+```
+
+- **Dirty**: the data at creation is the baseline, and each path's current value is compared with it. The same reference counts as the same; otherwise plain objects and arrays are compared by content (other values with `Object.is`). Reverting a field to its original value also makes the record and the whole form clean again. Unchanged parts keep the same references, so only changed branches are compared
+- **Touched**: the state side cannot know when focus leaves. The UI decides when a value counts as touched and calls `touch(path)`. A parent path is `true` if anything under it is touched
+- `dirty(path)` and `touched(path)` return models that read booleans, and the same path returns the same object. Subscribers are notified only when the value changes
+- When controlled, call `markClean()` to reset the baseline after reloading data following a save
+
 ### Not reapplying on edits (input screens)
 
 A derived model reapplies filtering and sorting as soon as its source changes. On an input screen, a record disappears the moment you enter a value that no longer matches the filter, and jumps the moment you edit its sort key. With `filterRefresh` and `sortRefresh` set to `'manual'`, the model does not reapply when the source changes, and reapplies when you call `refresh()` or replace a condition.
@@ -581,6 +602,28 @@ A selection model for a list.
 | `removeMissing()`       | Removes ids not in the source from where the selected ids are kept                                                                                       |
 | `source`                | The connected source model                                                                                                                               |
 
+### `createModelStatus`
+
+```ts
+createModelStatus<M extends ModelStatusSource>(source: M): ModelStatus<M>
+```
+
+Creates a status model (dirty and touched). It connects to a Record or List model (a root or a child model). It cannot connect to derived models.
+
+### `ModelStatus<M>`
+
+A status model. `path` is a path of keys and ids relative to the connected model; if omitted, it refers to the whole connected model.
+
+| Member           | Description                                                                                          |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `dirty(path?)`   | A model that reads whether the value is dirty (the same path returns the same object)                |
+| `touched(path?)` | A model that reads whether the value is touched (`true` if the path or anything under it is touched) |
+| `touch(path)`    | Marks it as touched                                                                                  |
+| `markClean()`    | Makes the current data the baseline. Everything becomes clean                                        |
+| `clearTouched()` | Clears all touched marks                                                                             |
+| `reset()`        | Both `markClean()` and `clearTouched()`                                                              |
+| `source`         | The connected model                                                                                  |
+
 ### Definitions
 
 | Definition            | Shape                           | Description                                                                                                                                  |
@@ -622,6 +665,8 @@ Definitions are plain objects, so they can be created from JSON (unless `id` is 
 | `RefreshMode`              | Whether a derived model reapplies on source changes (`'auto'`, `'manual'`)    |
 | `ListSelection<E, S>`      | A selection model for a list                                                  |
 | `ListSelectionOptions`     | Options of `createListSelection`                                              |
+| `ModelStatus<M>`           | A status model (dirty and touched)                                            |
+| `ModelStatusSource`        | A model a status model can connect to (a Record or List model)                |
 | `GroupedList<K, E, S>`     | The grouped derived model                                                     |
 | `GroupedListOptions<E, K>` | Options of `createGroupedList`                                                |
 | `ListGroup<K, E>`          | A group of the grouped derived model                                          |

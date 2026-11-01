@@ -171,6 +171,27 @@ order.list('lines').remove(selection.get()); // 選んだ行を削除する
 - 読むとき（`get()`・`has()`・`records()`）は、上流にある id だけを返します。データを取り直して同じ id の行が戻れば、選択も戻ります。置き場所に残った、上流に無い id は `removeMissing()` で外せます
 - 選択をどの一覧につなぐかで、読める選択が変わります。ふつうは List のモデル（データの場所）につなぎます。絞り込みで見えなくなった行の選択も読めます。派生モデルにつなぐと、見えている行の中で選んだものだけを読めます（置き場所には見えない行の id も残るので、絞り込みを外せば選択も戻ります）
 
+### 変更済みか・触ったかを知る
+
+`createModelStatus` で、モデルにつなぐ状態のモデルを作ります。その下のすべてのパスについて、変更済みか（dirty）と、触ったか（touched）を読めます。
+
+```ts
+import { createModelStatus } from '@fringeworks/state-model';
+
+const status = createModelStatus(order);
+
+status.dirty().get(); // フォームのどこかが変更済みか
+status.dirty(['lines', 'L-3']).get(); // 明細 L-3 が変更済みか
+status.touch(['customer']); // 触ったことにする（フォーカスが外れたときなどに UI が呼ぶ）
+status.touched(['lines']).get(); // 明細のどこかを触ったか
+status.markClean(); // 保存した後などに、今のデータを基準にする
+```
+
+- **変更済みか**: 作ったときのデータを基準にし、パスごとに今の値と比べます。参照が同じなら同じとし、違えば、素のオブジェクトと配列は中身を比べます（それ以外の値は `Object.is`）。項目を元の値に戻せば、行やフォーム全体も変更済みでなくなります。変わっていない部分は参照が同じなので、比べ直すのは変わった枝だけです
+- **触ったか**: 状態の側では、フォーカスが外れたことは分かりません。いつ触ったとするかは UI が決め、`touch(path)` を呼びます。親のパスは、下のどこかを触っていれば `true` です
+- `dirty(path)`・`touched(path)` は真偽値を読むモデルを返し、同じパスなら同じオブジェクトです。値が変わったときだけ購読者に知らせます
+- 制御のとき、保存した後にデータを取り直したら、`markClean()` を呼んで基準を置き直してください
+
 ### 編集しても当て直さない（入力画面）
 
 派生モデルは、上流が変わるとすぐ絞り込み・並べ替えを当て直します。入力画面では、絞り込みの条件から外れる値を入力した瞬間に行が消えたり、並べ替えのキーを編集した瞬間に行が飛んだりします。`filterRefresh`・`sortRefresh` を `'manual'` にすると、上流が変わっても当て直さず、`refresh()` を呼ぶか条件を差し替えたときに当て直します。
@@ -581,6 +602,28 @@ createListSelection<E, S extends ListSource<E>>(
 | `removeMissing()`       | 上流に無い id を、選んだ id の置き場所から外す                                         |
 | `source`                | つないだ上流のモデル                                                                   |
 
+### `createModelStatus`
+
+```ts
+createModelStatus<M extends ModelStatusSource>(source: M): ModelStatus<M>
+```
+
+状態のモデル（変更済みか・触ったか）を作ります。つなげるのは Record・List のモデル（ルートでも下位でもよい）です。派生モデルにはつなげません。
+
+### `ModelStatus<M>`
+
+状態のモデル。`path` は、つないだモデルからの相対的なキーと id のパスで、省略すると、つないだモデル全体を指します。
+
+| メンバー         | 説明                                                                    |
+| ---------------- | ----------------------------------------------------------------------- |
+| `dirty(path?)`   | 変更済みかを読むモデル（同じパスなら同じオブジェクト）                  |
+| `touched(path?)` | 触ったかを読むモデル（そのパスか、その下のどこかを触っていれば `true`） |
+| `touch(path)`    | 触ったことにする                                                        |
+| `markClean()`    | 基準のデータを今のデータに置き直す。変更済みはすべて外れる              |
+| `clearTouched()` | 触ったことをすべて外す                                                  |
+| `reset()`        | `markClean()` と `clearTouched()` の両方                                |
+| `source`         | つないだモデル                                                          |
+
 ### 定義
 
 | 定義                  | 形                              | 説明                                                                                      |
@@ -622,6 +665,8 @@ createListSelection<E, S extends ListSource<E>>(
 | `RefreshMode`              | 派生モデルが上流の変化で当て直すか（`'auto'`・`'manual'`） |
 | `ListSelection<E, S>`      | 一覧の選択のモデル                                         |
 | `ListSelectionOptions`     | `createListSelection` のオプション                         |
+| `ModelStatus<M>`           | 状態のモデル（変更済みか・触ったか）                       |
+| `ModelStatusSource`        | 状態のモデルにつなげるモデル（Record・List のモデル）      |
 | `GroupedList<K, E, S>`     | グループ化した派生モデル                                   |
 | `GroupedListOptions<E, K>` | `createGroupedList` のオプション                           |
 | `ListGroup<K, E>`          | グループ化した派生モデルの、1つのグループ                  |

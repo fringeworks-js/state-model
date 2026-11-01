@@ -11,6 +11,7 @@ import _createIdsModel from './_createIdsModel';
 import _createNotifier, { type NotifierSubscribe } from './_createNotifier';
 import _getIn, { type Segment } from './_getIn';
 import { _setListIdOf } from './_listIdOf';
+import { _setModelSegments } from './_modelSegments';
 import _normalizeId from './_normalizeId';
 import _updateIn, { type Updater } from './_updateIn';
 import {
@@ -89,6 +90,7 @@ function createModel(
   const base = { kind, path: frozenPath, get, set, subscribe };
 
   if (kind === 'field') {
+    _setModelSegments(base, segments);
     return base;
   }
 
@@ -118,6 +120,7 @@ function createModel(
       at: (relativePath: readonly RecordId[]) =>
         walkPath(recordModel, 'record', definition, relativePath),
     };
+    _setModelSegments(recordModel, segments);
     return recordModel;
   }
 
@@ -150,6 +153,7 @@ function createModel(
       walkPath(listModel, 'list', definition, relativePath),
   };
   _setListIdOf(listModel, idOf);
+  _setModelSegments(listModel, segments);
   return listModel;
 }
 
