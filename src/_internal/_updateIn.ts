@@ -19,14 +19,14 @@ export class Skip {
 export type Updater = (prev: unknown) => unknown;
 
 /**
- * 住所の値を作り直した結果
+ * パスが指す値を作り直した結果
  */
 export type UpdateResult =
   | { readonly ok: true; readonly data: unknown }
   | { readonly ok: false; readonly reason: string };
 
 /**
- * 住所の値を作り直した、新しいデータを返す（書き換えない）
+ * パスが指す値を作り直した、新しいデータを返す（書き換えない）
  *
  * - 変わった所だけを作り直し、ほかは同じ参照のまま残す
  * - 変化が無ければ、元のデータをそのまま返す

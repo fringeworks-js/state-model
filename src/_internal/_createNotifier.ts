@@ -11,7 +11,7 @@ type Subscription = {
 /**
  * 購読の通知
  *
- * - 根が変わったら、購読ごとに read し直し、Object.is で違えば呼ぶ
+ * - ルートのモデルのデータが変わったら、購読ごとに read し直し、Object.is で違えば呼ぶ
  * - 値は呼ぶ時点で read する。通知の途中に起きた変更は、今の回を終えてから次の回で知らせる
  */
 export default function _createNotifier() {
@@ -66,3 +66,8 @@ export default function _createNotifier() {
 
   return { subscribe, notify };
 }
+
+/**
+ * 通知の購読（読む関数と listener を受け取り、解除する関数を返す）
+ */
+export type NotifierSubscribe = ReturnType<typeof _createNotifier>['subscribe'];

@@ -15,7 +15,7 @@ describe('createListModel', () => {
     warnSpy.mockRestore();
   });
 
-  it('List を根にして読み書きする', () => {
+  it('List のルートのモデルで読み書きする', () => {
     const list = createListModel(
       { kind: 'list', id: 'lineId', record: lineDefinition },
       { defaultData: lines },

@@ -3,7 +3,7 @@ import _getListIndex from './_getListIndex';
 import _isRecordLike from './_isRecordLike';
 
 /**
- * 住所の1段を、たどり方つきで表したもの\
+ * パスの1段を、たどり方つきで表したもの\
  * モデルは作るときに定義から決めて持つので、たどるときに定義を見なくてよい
  */
 export type Segment =
@@ -16,7 +16,7 @@ export type Segment =
     };
 
 /**
- * 住所の値を読む。指す先が無ければ undefined
+ * パスが指す値を読む。モデルが指すデータが無ければ undefined
  */
 export default function _getIn(
   data: unknown,

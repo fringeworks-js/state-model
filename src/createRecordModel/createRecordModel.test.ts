@@ -20,7 +20,7 @@ function createUncontrolled() {
 
 describe('createRecordModel', () => {
   describe('モデル', () => {
-    it('層を1段ずつたどって読み書きする', () => {
+    it('1段ずつたどって読み書きする', () => {
       const order = createUncontrolled();
       const price = order.list('lines').record('L-2').field('price');
       expect(price.get()).toBe(200);
@@ -32,14 +32,14 @@ describe('createRecordModel', () => {
       expect(order.get().lines[0]!.product).toBe('X');
     });
 
-    it('kind は層を表す', () => {
+    it('kind はモデルの種類を表す', () => {
       const order = createUncontrolled();
       expect(order.kind).toBe('record');
       expect(order.list('lines').kind).toBe('list');
       expect(order.field('customer').kind).toBe('field');
     });
 
-    it('同じ住所なら同じオブジェクト。at() も同じものを返す', () => {
+    it('同じパスなら同じオブジェクト。at() も同じものを返す', () => {
       const order = createUncontrolled();
       const line = order.list('lines').record('L-2');
       expect(order.list('lines').record('L-2')).toBe(line);
@@ -50,7 +50,7 @@ describe('createRecordModel', () => {
       expect(order.record('shipping')).not.toBe(order.field('shipping'));
     });
 
-    it('数値の id でも同じ住所', () => {
+    it('数値の id でも同じパス', () => {
       const order = createRecordModel<{ rows: { id: number }[] }>(
         {
           kind: 'record',
@@ -77,7 +77,7 @@ describe('createRecordModel', () => {
       expect(Object.isFrozen(path)).toBe(true);
     });
 
-    it('指す先が無ければ undefined。書き込みは何もせず警告する', () => {
+    it('モデルが指すデータが無ければ undefined。書き込みは何もせず警告する', () => {
       const order = createUncontrolled();
       const line = order.list('lines').record('L-2');
       order.list('lines').remove(['L-2']);
@@ -130,7 +130,7 @@ describe('createRecordModel', () => {
       const zip = order.at(['shipping', 'zip']);
       expect(zip.kind).toBe('field');
       expect(zip.get()).toBe('100');
-      // 定義の無い List をたどると、指す先が無く、警告する
+      // 定義の無い List をたどると、指すデータが無く、警告する
       expect(order.at(['lines', 'L-1']).get()).toBeUndefined();
       expect(warnSpy).toHaveBeenCalledTimes(1);
     });
@@ -173,7 +173,7 @@ describe('createRecordModel', () => {
       expect(listener).not.toHaveBeenCalled();
     });
 
-    it('指す先が消えたときも普通の変化として知らせる', () => {
+    it('モデルが指すデータが消えたときも普通の変化として知らせる', () => {
       const order = createUncontrolled();
       const line = order.list('lines').record('L-2');
       const events: ModelChangeEvent<unknown>[] = [];
@@ -231,7 +231,7 @@ describe('createRecordModel', () => {
       expect(order.get()).toBe(store.get());
     });
 
-    it('反映が遅れる持ち主: 同じ処理の中なら、反映待ちのデータの上に積む', () => {
+    it('反映が遅れるデータの持ち主: 同じ処理の中なら、反映待ちのデータの上に積む', () => {
       const changes: Order[] = [];
       const order = createRecordModel(orderDefinition, {
         data: createOrder(),
@@ -246,7 +246,7 @@ describe('createRecordModel', () => {
       expect(last.lines[0]!.price).toBe(1);
     });
 
-    it('反映が遅れる持ち主: マイクロタスクを挟んで続けて書いても消えない', async () => {
+    it('反映が遅れるデータの持ち主: マイクロタスクを挟んで続けて書いても消えない', async () => {
       const changes: Order[] = [];
       const order = createRecordModel(orderDefinition, {
         data: createOrder(),
@@ -260,7 +260,7 @@ describe('createRecordModel', () => {
       expect(last.lines[0]!.price).toBe(1);
     });
 
-    it('持ち主が受け入れなかった変更は、次のタスクの書き込みに混ざらない', async () => {
+    it('データの持ち主が受け入れなかった変更は、次のタスクの書き込みに混ざらない', async () => {
       const changes: Order[] = [];
       const order = createRecordModel(orderDefinition, {
         data: createOrder(),
@@ -307,7 +307,7 @@ describe('createRecordModel', () => {
       expect(listener).not.toHaveBeenCalled();
     });
 
-    it('非制御の根は receive で受け取らず、警告する', () => {
+    it('非制御のルートのモデルは receive で受け取らず、警告する', () => {
       const order = createUncontrolled();
       const before = order.get();
       order.receive(createOrder());

@@ -7,9 +7,10 @@ import type {
 } from '../types';
 import _createChildCache from './_createChildCache';
 import _createIdOf, { type IdOf } from './_createIdOf';
-import _createNotifier from './_createNotifier';
+import _createIdsModel from './_createIdsModel';
+import _createNotifier, { type NotifierSubscribe } from './_createNotifier';
 import _getIn, { type Segment } from './_getIn';
-import _getListIndex from './_getListIndex';
+import { _setListIdOf } from './_listIdOf';
 import _normalizeId from './_normalizeId';
 import _updateIn, { type Updater } from './_updateIn';
 import {
@@ -26,20 +27,18 @@ import _warn from './_warn';
 const NONE = Symbol('none');
 
 /**
- * 根の中身: データの置き場所（制御・非制御）と通知
+ * ルートのモデルの中身: データの置き場所（制御・非制御）と通知
  */
 type RootCore = {
   read(): unknown;
   write(segments: readonly Segment[], updater: Updater): void;
-  subscribe: ReturnType<typeof _createNotifier>['subscribe'];
+  subscribe: NotifierSubscribe;
 };
 
 /**
  * 子のモデルを作るメソッドを、名前で引けるようにしたもの（at() でたどるため）
  */
 type Traversable = Record<string, (key: RecordId) => object>;
-
-const EMPTY_IDS: readonly string[] = Object.freeze([]);
 
 function kindOf(definition: AnyDefinition | undefined): ModelKind | undefined {
   return definition === undefined ? undefined : (definition.kind ?? 'field');
@@ -68,10 +67,6 @@ function checkKind(
   if (defined !== undefined && defined !== kind) {
     _warn(`${formatPath(path)} is defined as ${defined}, but used as ${kind}.`);
   }
-}
-
-function sameIds(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
 /**
@@ -125,22 +120,8 @@ function createModel(
 
   const listDefinition = definition?.kind === 'list' ? definition : undefined;
   const idOf: IdOf = _createIdOf(listDefinition?.id);
-  // 並びが同じなら前に返した配列を返すため、最後に返した配列を覚えておく
-  let lastIds = EMPTY_IDS;
-  const getIds = () => {
-    const list = get();
-    const ids = Array.isArray(list) ? _getListIndex(list, idOf).ids : EMPTY_IDS;
-    if (!sameIds(ids, lastIds)) {
-      lastIds = ids;
-    }
-    return lastIds;
-  };
-  const idsModel: ReadonlyModel<readonly string[]> = {
-    get: getIds,
-    subscribe: (listener) =>
-      root.subscribe(getIds, listener as Parameters<RootCore['subscribe']>[1]),
-  };
-  return {
+  const idsModel = _createIdsModel(get, idOf, root.subscribe);
+  const listModel = {
     ...base,
     insert: (records: readonly unknown[]) =>
       root.write(segments, _createInsertUpdater(idOf, records)),
@@ -163,12 +144,14 @@ function createModel(
     },
     ids: () => children.get('ids', () => idsModel),
   };
+  _setListIdOf(listModel, idOf);
+  return listModel;
 }
 
 /**
- * 住所の配列からモデルを作る
+ * キーと id のパスからモデルを作る
  *
- * - 定義をたどって層を決める。List の中では id、Record の中ではキー
+ * - 定義をたどってモデルの種類を決める。List の中では id、Record の中ではキー
  * - 定義が無い所はキーでたどり（Record として扱う）、最後の段は Field にする
  */
 function at(
@@ -222,9 +205,9 @@ function warnIfList(
 }
 
 /**
- * 根のモデルを作る（非制御・制御）
+ * ルートのモデルを作る（非制御・制御）
  *
- * 制御のときは、書き込みを「反映待ちのデータ」に積み、onChangeData で持ち主に渡す。
+ * 制御のときは、書き込みを「反映待ちのデータ」に積み、onChangeData でデータの持ち主に渡す。
  * 反映待ちのデータは、外から受け取ったとき（receive）か、次のマクロタスクで捨てる
  */
 export default function _createRootModel(

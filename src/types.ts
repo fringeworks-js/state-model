@@ -13,8 +13,8 @@ import type {
 export type RecordId = string | number;
 
 /**
- * 住所（データの住所）\
- * 根からのキーと id の並び。id は文字列に揃える
+ * キーと id のパス\
+ * ルートのモデルのデータの中で値がどこにあるかを、Record のキーと List の id を順に並べた配列で表したもの。id は文字列に揃える
  */
 export type ModelPath = readonly string[];
 
@@ -76,18 +76,18 @@ export interface ReadonlyModel<V> {
 }
 
 // ---------------------------------------------------------------------------
-// 3層のモデル
+// 3種類のモデル
 // ---------------------------------------------------------------------------
 
 /**
- * 3層に共通の口（読む・書く・購読する）\
- * M が true のときは、指す先が無いかもしれない（`get()` が undefined を含む）
+ * 3種類に共通の口（読む・書く・購読する）\
+ * M が true のときは、モデルが指すデータが無いかもしれない（`get()` が undefined を含む）
  */
 interface ModelBase<V, M extends boolean> extends ReadonlyModel<
   MaybeMissing<V, M>
 > {
   /**
-   * 根からの住所（凍結している）
+   * ルートのモデルからのキーと id のパス（凍結している）
    */
   readonly path: ModelPath;
 
@@ -172,7 +172,7 @@ export interface ListModel<E, M extends boolean = false> extends ModelBase<
 }
 
 /**
- * 住所の配列から作ったモデル（型は推論しない。`kind` で絞り込む）
+ * キーと id のパスから作ったモデル（型は推論しない。`kind` で絞り込む）
  */
 export type UnknownModel =
   | FieldModel<unknown, true>
@@ -180,16 +180,16 @@ export type UnknownModel =
   | ListModel<Record<string, unknown>, true>;
 
 /**
- * 根のモデルだけが持つもの
+ * ルートのモデルだけが持つもの
  */
 export interface ModelRoot<D> {
   /**
-   * 住所の配列からモデルを作る。層は定義をたどって実行時に決める
+   * キーと id のパスからモデルを作る。モデルの種類は定義をたどって実行時に決める
    */
   at(path: readonly RecordId[]): UnknownModel;
 
   /**
-   * 外からデータを受け取る（制御のとき）。持ち主が渡し直したデータを受け取り、変わった所の購読者に知らせる
+   * 外からデータを受け取る（制御のとき）。データの持ち主が渡し直したデータを受け取り、変わった所の購読者に知らせる
    */
   receive(data: D): void;
 }

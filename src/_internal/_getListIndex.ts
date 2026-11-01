@@ -18,11 +18,12 @@ const indexCache = new WeakMap<readonly unknown[], Map<IdOf, ListIndex>>();
  *
  * - id が重複している行は、先にある方だけを含める
  * - id が有効でない行は含めない
- * - どちらも、データには残したまま開発時に警告する
+ * - どちらも、データには残したまま開発時に警告する（quiet が true なら警告しない）
  */
 export default function _getListIndex(
   list: readonly unknown[],
   idOf: IdOf,
+  quiet = false,
 ): ListIndex {
   let byIdOf = indexCache.get(list);
   if (!byIdOf) {
@@ -49,12 +50,12 @@ export default function _getListIndex(
       ids.push(id);
     }
   });
-  if (invalidCount > 0) {
+  if (invalidCount > 0 && !quiet) {
     _warn(
       `${invalidCount} record(s) in a list have no valid id. They cannot be reached by id.`,
     );
   }
-  if (duplicates.length > 0) {
+  if (duplicates.length > 0 && !quiet) {
     _warn(
       `Duplicate ids in a list (${duplicates.join(', ')}). Only the first record with each id is reached.`,
     );

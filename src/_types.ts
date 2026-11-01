@@ -45,10 +45,10 @@ export type MaybeMissing<V, M extends boolean> = M extends true
   : V;
 
 /**
- * 根を作るときのオプション（名前は仮。値と操作の契約の名前と一緒に決める）
+ * ルートのモデルを作るときのオプション（名前は仮。値と操作の契約の名前と一緒に決める）
  *
  * - 非制御: `defaultData` を受け取って中に持つ
- * - 制御: `data` を参照し、書き込みは `onChangeData` で持ち主に依頼する。持ち主が渡し直したデータは `receive` で受け取る
+ * - 制御: `data` を参照し、書き込みは `onChangeData` でデータの持ち主に依頼する。データの持ち主が渡し直したデータは `receive` で受け取る
  */
 export type ModelOptions<D> =
   { defaultData: D } | { data: D; onChangeData: (data: D) => void };

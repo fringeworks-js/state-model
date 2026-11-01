@@ -9,7 +9,7 @@ const key = (k: string): Segment => ({ type: 'key', key: k });
 const id = (i: string): Segment => ({ type: 'id', id: i, idOf });
 
 describe('_getIn', () => {
-  it('住所をたどって読む。指す先が無ければ undefined', () => {
+  it('パスをたどって読む。モデルが指すデータが無ければ undefined', () => {
     const order = createOrder();
     expect(_getIn(order, [key('lines'), id('L-2'), key('price')])).toBe(200);
     expect(
