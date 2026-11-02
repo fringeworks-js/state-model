@@ -13,6 +13,7 @@ Data stays as plain objects and arrays, and a change produces new data in which 
 - **Notifies only your data**: a listener is called only when the value (reference) of its model changes
 - **Controlled and uncontrolled**: in the same sense as React's controlled and uncontrolled components, a model can hold the data itself (uncontrolled) or refer to your state (controlled; React's `useState`, zustand, Redux, and so on)
 - **Derived models**: hold a filtered and sorted result, or a grouped result, of a list without changing the original data. The result is rebuilt when the source changes, and derived models can be stacked on derived models
+- **Selection, dirty state, and validation**: connect a selection, whether values are dirty, and whether data follows the rules, as models separate from the data. All of them are read by paths of keys and ids
 - **Any environment**: it uses neither the DOM nor React. From React, use it with [`@fringeworks/react-state-model`](https://github.com/fringeworks-js/react-state-model)
 
 ## Installation
@@ -171,9 +172,9 @@ order.list('lines').remove(selection.get()); // Removes the selected records
 - Reading (`get()`, `has()`, `records()`) returns only ids in the source. If records with the same ids come back after reloading data, the selection comes back too. Ids not in the source that remain where the ids are kept can be removed with `removeMissing()`
 - What you can read depends on which list the selection is connected to. Usually connect it to the List model (the data location); the selection of records hidden by a filter can still be read. Connected to a derived model, only the selected records among the visible ones can be read (ids of hidden records remain where the ids are kept, so the selection comes back when the filter is removed)
 
-### Knowing whether values are dirty or touched
+### Knowing whether values are dirty
 
-`createModelStatus` creates a status model connected to a model. For every path under it, you can read whether the value is dirty and whether it is touched.
+`createModelStatus` creates a status model connected to a model. For every path under it, you can read whether the value is dirty.
 
 ```ts
 import { createModelStatus } from '@fringeworks/state-model';
@@ -182,15 +183,57 @@ const status = createModelStatus(order);
 
 status.dirty().get(); // Whether anything in the form is dirty
 status.dirty(['lines', 'L-3']).get(); // Whether line L-3 is dirty
-status.touch(['customer']); // Marks it as touched (the UI calls it, e.g. when focus leaves)
-status.touched(['lines']).get(); // Whether anything in the lines is touched
 status.markClean(); // Makes the current data the baseline, e.g. after saving
 ```
 
-- **Dirty**: the data at creation is the baseline, and each path's current value is compared with it. The same reference counts as the same; otherwise plain objects and arrays are compared by content (other values with `Object.is`). Reverting a field to its original value also makes the record and the whole form clean again. Unchanged parts keep the same references, so only changed branches are compared
-- **Touched**: the state side cannot know when focus leaves. The UI decides when a value counts as touched and calls `touch(path)`. A parent path is `true` if anything under it is touched
-- `dirty(path)` and `touched(path)` return models that read booleans, and the same path returns the same object. Subscribers are notified only when the value changes
+- The data at creation is the baseline, and each path's current value is compared with it. The same reference counts as the same; otherwise plain objects and arrays are compared by content (other values with `Object.is`). Reverting a field to its original value also makes the record and the whole form clean again. Unchanged parts keep the same references, so only changed branches are compared
+- `dirty(path)` returns a model that reads a boolean, and the same path returns the same object. Subscribers are notified only when the value changes
 - When controlled, call `markClean()` to reset the baseline after reloading data following a save
+
+### Validating
+
+Write rules in `validate` of a definition. `createModelValidation` creates a validation model connected to a model, and for every path under it you can read where the data breaks the rules (the issues).
+
+```ts
+import {
+  createModelValidation,
+  type RecordDefinition,
+} from '@fringeworks/state-model';
+
+const orderDefinition: RecordDefinition<Order> = {
+  kind: 'record',
+  fields: {
+    customer: { validate: (customer) => (customer ? undefined : 'Required') },
+    lines: {
+      kind: 'list',
+      id: 'lineId',
+      record: {
+        kind: 'record',
+        fields: {
+          price: {
+            validate: (price) => (price >= 0 ? undefined : 'Must be 0 or more'),
+          },
+        },
+      },
+      validate: (lines) => (lines.length > 0 ? undefined : 'Add a line'),
+    },
+  },
+};
+
+const order = createRecordModel(orderDefinition, { defaultData });
+const validation = createModelValidation(order);
+
+validation.issues(['customer']).get(); // [{ message: 'Required' }]
+validation.invalid(['lines', 'L-3']).get(); // Whether line L-3 has issues anywhere
+validation.invalid().get(); // Whether the form has issues anywhere (whether it can be submitted)
+```
+
+- **Writing rules**: a Field rule receives the value, and a Record or List rule receives its own value. Returning a message string makes an issue of that place itself, and `undefined` (or an empty array) means no issues. Write checks across fields in the Record rule, and return them with a path relative to the Record, like `[{ path: ['billing', 'zip'], message: '...' }]`. A rule written in the record definition of a List applies to every record
+- **Schema libraries**: you can pass a schema that supports [Standard Schema](https://standardschema.dev/), such as zod or valibot, with `createModelValidation(order, { validate: orderSchema })`. Array indexes in the issue paths are replaced with record ids (issues of records that cannot be reached by id go to the List). You can also pass a function that receives the value and returns issues
+- **Always the issues of the current data**: issues are derived from the data, so fixing a value removes its issues at once. There is no operation to run validation. Rules are applied only when read, and rules of unchanged records are not run again
+- **The UI decides when to show them**: whether to show an error as soon as typing starts is decided on the UI side (for example, show it only after the value is touched or the form is submitted)
+- **Issues from outside**: set issues such as errors returned by a server with `setIssues('server', issues)`, naming their origin. They are replaced per origin and read together with the issues of the rules. With `{ clearOnChange: true }`, they are not read while the value of the path differs from when they were set (fixing the value hides them, and reverting it shows them again)
+- **Asynchronous validation**: rules and schemas are synchronous only. Run asynchronous validation, such as a duplicate check, yourself and set its results with `setIssues`
 
 ### Not reapplying on edits (input screens)
 
@@ -255,9 +298,10 @@ if (model.kind === 'field') {
 - **Function values**: a function passed to `set` is treated as a function that creates the new value from the previous one, so a function itself cannot be the value of a Field (as with React's `setState`)
 - **Keys not in the definition**: the method you call decides the model kind (calling `list()` on a key not in the definition treats it as a List and reads ids from the default `'id'`). `at(path)` follows keys where there is no definition, so a definition is needed to point to list records from settings
 - **Warnings during development**: the cases above are reported with `console.warn`, except when `process.env.NODE_ENV` is `'production'`
-- **Out of scope**: fetching, caching, and the fetch status (loading and so on) of server data. Fetch with React Query, SWR, or similar, and pass the result to the root model
+- **Fetching data**: to get data from a server, fetch it with React Query, SWR, or similar, and pass the result to the root model (in the controlled form, you can pass the fetched result to `data` as is)
 - **`record(id)` of a derived model**: it also points to records not in the result (filtered out). It returns the same object as `record(id)` of the original List model, so a form being edited keeps pointing to its record even if the filter changes. Use `ids()` to check whether a record is in the result
 - **Filter and sort functions**: they are called every time the result is rebuilt. Do not change records in them, and return the same answer for the same records. Sorting is stable, and records that compare equal keep the original order
+- **Validation rules**: return the same issues for the same value. The issues of rules for unchanged records are reused. When an optional nested record or List is missing, neither its rule nor the rules under it are applied (check that it is missing in the rule of the parent Record). Field rules are called even when the value is `undefined`
 - **Without conditions**: when a derived model has no filter or sort condition (including after removing them), it returns the source value as is (the same array). A grouped derived model without `filterGroups` and `sortGroups` returns the result of grouping only. However, when the source is missing (an optional List that is `undefined`), it returns an empty array
 - **The result kept when not reapplying**: the last result built is kept. With subscribers, the result is built every time the source changes, so the result on screen is kept as is
 - **Group keys**: keys are compared by the same rule as `Map` (SameValueZero). When you use a key as a React `key`, convert it to a string with `String(group.key)` or similar if it is not a string
@@ -302,12 +346,12 @@ Creates a root model of the List kind (a list and so on). The options are the sa
 
 ```ts
 createFieldModel<V>(
-  definition: FieldDefinition,
+  definition: FieldDefinition<V>,
   options: FieldModelOptions<V>,
 ): FieldModel<V> & ModelRoot<V>
 ```
 
-Creates a root model of the Field kind (a single input and so on). The options are the same as `createRecordModel`, and the type of the data is `V`. A Field definition currently has only `kind`, so pass `{}`.
+Creates a root model of the Field kind (a single input and so on). The options are the same as `createRecordModel`, and the type of the data is `V`. Without rules, pass `{}` as the definition.
 
 ### `ReadonlyModel<V>`
 
@@ -608,66 +652,121 @@ A selection model for a list.
 createModelStatus<M extends ModelStatusSource>(source: M): ModelStatus<M>
 ```
 
-Creates a status model (dirty and touched). It connects to a Record or List model (a root or a child model). It cannot connect to derived models.
+Creates a status model (dirty). It connects to a Record or List model (a root or a child model). It cannot connect to derived models.
 
 ### `ModelStatus<M>`
 
 A status model. `path` is a path of keys and ids relative to the connected model; if omitted, it refers to the whole connected model.
 
-| Member           | Description                                                                                          |
-| ---------------- | ---------------------------------------------------------------------------------------------------- |
-| `dirty(path?)`   | A model that reads whether the value is dirty (the same path returns the same object)                |
-| `touched(path?)` | A model that reads whether the value is touched (`true` if the path or anything under it is touched) |
-| `touch(path)`    | Marks it as touched                                                                                  |
-| `markClean()`    | Makes the current data the baseline. Everything becomes clean                                        |
-| `clearTouched()` | Clears all touched marks                                                                             |
-| `reset()`        | Both `markClean()` and `clearTouched()`                                                              |
-| `source`         | The connected model                                                                                  |
+| Member         | Description                                                                           |
+| -------------- | ------------------------------------------------------------------------------------- |
+| `dirty(path?)` | A model that reads whether the value is dirty (the same path returns the same object) |
+| `markClean()`  | Makes the current data the baseline. Everything becomes clean                         |
+| `source`       | The connected model                                                                   |
+
+### `createModelValidation`
+
+```ts
+createModelValidation<M extends ModelValidationSource>(
+  source: M,
+  options?: ModelValidationOptions<V>,
+): ModelValidation<M>
+```
+
+Creates a validation model. It connects to a Field, Record, or List model (a root or a child model). It cannot connect to derived models. `V` is the type of the value of `source`. The rules of the definitions (`validate`) are read from the definition of the connected model.
+
+| Option      | Type                                                   | Description                                                                                                                                                               |
+| ----------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `validate?` | `StandardSchemaV1 \| ((value: V) => ValidationResult)` | A rule for the whole connected model. A Standard Schema schema, or a function that receives the value and returns issues. Issue paths are relative to the connected model |
+
+### `ModelValidation<M>`
+
+A validation model. `path` is a path of keys and ids relative to the connected model; if omitted, it refers to the whole connected model. The issues read combine the issues of the rules and the issues set from outside.
+
+| Member                                        | Description                                                                                                             |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `issues(path?)`                               | A model that reads the issues exactly at the path (`readonly ValidationIssue[]`; the same path returns the same object) |
+| `invalid(path?)`                              | A model that reads whether the path or anything under it has issues (the same path returns the same object)             |
+| `setIssues(origin, issues, options?)`         | Replaces all the issues of an origin set from outside                                                                   |
+| `setIssuesAt(origin, path, issues, options?)` | Replaces the issues of an origin at one path only (an empty array removes them)                                         |
+| `clearIssues(origin?)`                        | Removes issues set from outside (all origins if omitted)                                                                |
+| `source`                                      | The connected model                                                                                                     |
+
+#### `setIssues` / `setIssuesAt`
+
+```ts
+setIssues(
+  origin: string,
+  issues: readonly ValidationIssueInput[],
+  options?: SetIssuesOptions,
+): void
+setIssuesAt(
+  origin: string,
+  path: readonly RecordId[],
+  issues: readonly ValidationIssue[],
+  options?: SetIssuesOptions,
+): void
+```
+
+Sets issues that come from outside the rules, such as errors returned by a server or results of asynchronous validation. Issues are kept per origin name (`origin`) and stay even when the issues of the rules change. Issues at paths not in the current data (removed records and so on) are not read. They are read again when a record with the same id comes back.
+
+| Option           | Type      | Description                                                                                                                                          |
+| ---------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clearOnChange?` | `boolean` | Does not read the issues while the value of the path differs from when they were set (compared by content). Makes server errors disappear when fixed |
 
 ### Definitions
 
-| Definition            | Shape                           | Description                                                                                                                                  |
-| --------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FieldDefinition`     | `{ kind?: 'field' }`            | A Field that holds a value. A definition without `kind` is this                                                                              |
-| `RecordDefinition<T>` | `{ kind: 'record'; fields? }`   | `fields` holds a definition per field. Fields not written are treated as plain values                                                        |
-| `ListDefinition<E>`   | `{ kind: 'list'; id?; record }` | `id` is the name of the id key or a function that extracts the id from a record (defaults to `'id'`). `record` is the definition of a record |
+| Definition            | Shape                                      | Description                                                                                                                                  |
+| --------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FieldDefinition<V>`  | `{ kind?: 'field'; validate? }`            | A Field that holds a value. A definition without `kind` is this                                                                              |
+| `RecordDefinition<T>` | `{ kind: 'record'; fields?; validate? }`   | `fields` holds a definition per field. Fields not written are treated as plain values                                                        |
+| `ListDefinition<E>`   | `{ kind: 'list'; id?; record; validate? }` | `id` is the name of the id key or a function that extracts the id from a record (defaults to `'id'`). `record` is the definition of a record |
 
-Definitions are plain objects, so they can be created from JSON (unless `id` is a function).
+`validate` is a validation rule used by validation models. A Field rule receives the value, a Record rule the record, and a List rule the array of records, and each returns a `ValidationResult` (a message string, an array of issues, or `undefined`).
+
+Definitions are plain objects, so they can be created from JSON (unless `id` or `validate` is a function).
 
 ### Types
 
-| Type                       | Description                                                                   |
-| -------------------------- | ----------------------------------------------------------------------------- |
-| `FieldModel<V>`            | Model of a Field                                                              |
-| `RecordModel<T>`           | Model of a Record                                                             |
-| `ListModel<E>`             | Model of a List                                                               |
-| `ReadonlyModel<V>`         | Something you can read and subscribe to                                       |
-| `ModelRoot<D>`             | Members only the root model has                                               |
-| `ModelReceiveOptions`      | Options of `receive`                                                          |
-| `UnknownModel`             | Model returned by `at()` (narrow it with `kind`)                              |
-| `ModelChangeEvent<V>`      | What a listener receives (`{ value, previousValue }`)                         |
-| `ModelListener<V>`         | A listener                                                                    |
-| `ModelPath`                | A path of keys and ids (`readonly string[]`)                                  |
-| `RecordId`                 | A value accepted as an id (`string \| number`)                                |
-| `FieldDefinition`          | Definition of a Field                                                         |
-| `RecordDefinition<T>`      | Definition of a Record                                                        |
-| `ListDefinition<E>`        | Definition of a List                                                          |
-| `DefinitionOf<V>`          | Definition that matches the type of a value (Field, Record, or List)          |
-| `FieldKeys<T>`             | Keys accepted by `field()`                                                    |
-| `RecordKeys<T>`            | Keys accepted by `record()`                                                   |
-| `ListKeys<T>`              | Keys accepted by `list()`                                                     |
-| `RecordModelOptions<T>`    | Options of `createRecordModel`                                                |
-| `ListModelOptions<E>`      | Options of `createListModel`                                                  |
-| `FieldModelOptions<V>`     | Options of `createFieldModel`                                                 |
-| `DerivedList<E, S>`        | The standard derived model                                                    |
-| `DerivedListOptions<E>`    | Options of `createDerivedList`                                                |
-| `ListSource<E>`            | A list that can be the source of a derived model (`ListModel`, `DerivedList`) |
-| `RefreshMode`              | Whether a derived model reapplies on source changes (`'auto'`, `'manual'`)    |
-| `ListSelection<E, S>`      | A selection model for a list                                                  |
-| `ListSelectionOptions`     | Options of `createListSelection`                                              |
-| `ModelStatus<M>`           | A status model (dirty and touched)                                            |
-| `ModelStatusSource`        | A model a status model can connect to (a Record or List model)                |
-| `GroupedList<K, E, S>`     | The grouped derived model                                                     |
-| `GroupedListOptions<E, K>` | Options of `createGroupedList`                                                |
-| `ListGroup<K, E>`          | A group of the grouped derived model                                          |
-| `GroupBy<E, K>`            | How to group (a key name, or a function that extracts the key from a record)  |
+| Type                        | Description                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `FieldModel<V>`             | Model of a Field                                                                |
+| `RecordModel<T>`            | Model of a Record                                                               |
+| `ListModel<E>`              | Model of a List                                                                 |
+| `ReadonlyModel<V>`          | Something you can read and subscribe to                                         |
+| `ModelRoot<D>`              | Members only the root model has                                                 |
+| `ModelReceiveOptions`       | Options of `receive`                                                            |
+| `UnknownModel`              | Model returned by `at()` (narrow it with `kind`)                                |
+| `ModelChangeEvent<V>`       | What a listener receives (`{ value, previousValue }`)                           |
+| `ModelListener<V>`          | A listener                                                                      |
+| `ModelPath`                 | A path of keys and ids (`readonly string[]`)                                    |
+| `RecordId`                  | A value accepted as an id (`string \| number`)                                  |
+| `FieldDefinition<V>`        | Definition of a Field                                                           |
+| `RecordDefinition<T>`       | Definition of a Record                                                          |
+| `ListDefinition<E>`         | Definition of a List                                                            |
+| `DefinitionOf<V>`           | Definition that matches the type of a value (Field, Record, or List)            |
+| `FieldKeys<T>`              | Keys accepted by `field()`                                                      |
+| `RecordKeys<T>`             | Keys accepted by `record()`                                                     |
+| `ListKeys<T>`               | Keys accepted by `list()`                                                       |
+| `RecordModelOptions<T>`     | Options of `createRecordModel`                                                  |
+| `ListModelOptions<E>`       | Options of `createListModel`                                                    |
+| `FieldModelOptions<V>`      | Options of `createFieldModel`                                                   |
+| `DerivedList<E, S>`         | The standard derived model                                                      |
+| `DerivedListOptions<E>`     | Options of `createDerivedList`                                                  |
+| `ListSource<E>`             | A list that can be the source of a derived model (`ListModel`, `DerivedList`)   |
+| `RefreshMode`               | Whether a derived model reapplies on source changes (`'auto'`, `'manual'`)      |
+| `ListSelection<E, S>`       | A selection model for a list                                                    |
+| `ListSelectionOptions`      | Options of `createListSelection`                                                |
+| `ModelStatus<M>`            | A status model (dirty)                                                          |
+| `ModelStatusSource`         | A model a status model can connect to (a Record or List model)                  |
+| `ModelValidation<M>`        | A validation model                                                              |
+| `ModelValidationOptions<V>` | Options of `createModelValidation`                                              |
+| `ModelValidationSource`     | A model a validation model can connect to (a Field, Record, or List model)      |
+| `SetIssuesOptions`          | Options of `setIssues` and `setIssuesAt`                                        |
+| `ValidationIssue`           | One validation issue (`{ message }`; added properties are kept)                 |
+| `ValidationIssueInput`      | An issue returned by a rule or set from outside (`ValidationIssue` and `path?`) |
+| `ValidationResult`          | What a rule returns (a string, an array of issues, or `undefined`)              |
+| `GroupedList<K, E, S>`      | The grouped derived model                                                       |
+| `GroupedListOptions<E, K>`  | Options of `createGroupedList`                                                  |
+| `ListGroup<K, E>`           | A group of the grouped derived model                                            |
+| `GroupBy<E, K>`             | How to group (a key name, or a function that extracts the key from a record)    |

@@ -13,6 +13,7 @@
 - **自分のデータだけを知らせる**: 購読は、そのモデルの値（参照）が変わったときだけ呼ばれます
 - **制御・非制御**: React の制御・非制御コンポーネントと同じ考え方で、データをモデルの中に持つ形（非制御）と、利用者の state（React の `useState`・zustand・Redux など）を参照する形（制御）のどちらでも作れます
 - **派生モデル**: 一覧を絞り込み・並べ替えた結果や、グループに分けた結果を、元のデータを加工せずに持てます。上流が変われば結果も作り直され、派生モデルの上に派生モデルを重ねることもできます
+- **選択・変更済みか・検証**: 選択、変更済みか、規則に合っているかを、データとは別のモデルとしてつなげます。どれもキーと id のパスで読めます
 - **環境を問わない**: DOM も React も使いません。React からは [`@fringeworks/react-state-model`](https://github.com/fringeworks-js/react-state-model) で使います
 
 ## インストール
@@ -171,9 +172,9 @@ order.list('lines').remove(selection.get()); // 選んだ行を削除する
 - 読むとき（`get()`・`has()`・`records()`）は、上流にある id だけを返します。データを取り直して同じ id の行が戻れば、選択も戻ります。置き場所に残った、上流に無い id は `removeMissing()` で外せます
 - 選択をどの一覧につなぐかで、読める選択が変わります。ふつうは List のモデル（データの場所）につなぎます。絞り込みで見えなくなった行の選択も読めます。派生モデルにつなぐと、見えている行の中で選んだものだけを読めます（置き場所には見えない行の id も残るので、絞り込みを外せば選択も戻ります）
 
-### 変更済みか・触ったかを知る
+### 変更済みかを知る
 
-`createModelStatus` で、モデルにつなぐ状態のモデルを作ります。その下のすべてのパスについて、変更済みか（dirty）と、触ったか（touched）を読めます。
+`createModelStatus` で、モデルにつなぐ状態のモデルを作ります。その下のすべてのパスについて、変更済みか（dirty）を読めます。
 
 ```ts
 import { createModelStatus } from '@fringeworks/state-model';
@@ -182,15 +183,55 @@ const status = createModelStatus(order);
 
 status.dirty().get(); // フォームのどこかが変更済みか
 status.dirty(['lines', 'L-3']).get(); // 明細 L-3 が変更済みか
-status.touch(['customer']); // 触ったことにする（フォーカスが外れたときなどに UI が呼ぶ）
-status.touched(['lines']).get(); // 明細のどこかを触ったか
 status.markClean(); // 保存した後などに、今のデータを基準にする
 ```
 
-- **変更済みか**: 作ったときのデータを基準にし、パスごとに今の値と比べます。参照が同じなら同じとし、違えば、素のオブジェクトと配列は中身を比べます（それ以外の値は `Object.is`）。項目を元の値に戻せば、行やフォーム全体も変更済みでなくなります。変わっていない部分は参照が同じなので、比べ直すのは変わった枝だけです
-- **触ったか**: 状態の側では、フォーカスが外れたことは分かりません。いつ触ったとするかは UI が決め、`touch(path)` を呼びます。親のパスは、下のどこかを触っていれば `true` です
-- `dirty(path)`・`touched(path)` は真偽値を読むモデルを返し、同じパスなら同じオブジェクトです。値が変わったときだけ購読者に知らせます
+- 作ったときのデータを基準にし、パスごとに今の値と比べます。参照が同じなら同じとし、違えば、素のオブジェクトと配列は中身を比べます（それ以外の値は `Object.is`）。項目を元の値に戻せば、行やフォーム全体も変更済みでなくなります。変わっていない部分は参照が同じなので、比べ直すのは変わった枝だけです
+- `dirty(path)` は真偽値を読むモデルを返し、同じパスなら同じオブジェクトです。値が変わったときだけ購読者に知らせます
 - 制御のとき、保存した後にデータを取り直したら、`markClean()` を呼んで基準を置き直してください
+
+### 検証する
+
+規則は定義の `validate` に書きます。`createModelValidation` で、モデルにつなぐ検証のモデルを作ると、その下のすべてのパスについて、規則に合っていない所（結果）を読めます。
+
+```ts
+import {
+  createModelValidation,
+  type RecordDefinition,
+} from '@fringeworks/state-model';
+
+const orderDefinition: RecordDefinition<Order> = {
+  kind: 'record',
+  fields: {
+    customer: { validate: (customer) => (customer ? undefined : '必須です') },
+    lines: {
+      kind: 'list',
+      id: 'lineId',
+      record: {
+        kind: 'record',
+        fields: {
+          price: { validate: (price) => (price >= 0 ? undefined : '0 以上') },
+        },
+      },
+      validate: (lines) => (lines.length > 0 ? undefined : '明細が要ります'),
+    },
+  },
+};
+
+const order = createRecordModel(orderDefinition, { defaultData });
+const validation = createModelValidation(order);
+
+validation.issues(['customer']).get(); // [{ message: '必須です' }]
+validation.invalid(['lines', 'L-3']).get(); // 明細 L-3 のどこかに結果があるか
+validation.invalid().get(); // フォームのどこかに結果があるか（送信してよいかの判断）
+```
+
+- **規則の書き方**: Field の規則は値を、Record・List の規則は自分の値を受け取ります。メッセージの文字列を返すと、その所自身の結果になり、`undefined`（か空の配列）なら問題なしです。項目をまたぐ検査は Record の規則に書き、`[{ path: ['billing', 'zip'], message: '...' }]` のように、Record からの相対パスを付けて返します。行の定義に書いた規則は、すべての行に当たります
+- **スキーマのライブラリ**: zod・valibot などの [Standard Schema](https://standardschema.dev/) に対応したスキーマを、`createModelValidation(order, { validate: orderSchema })` で渡せます。結果のパスの配列の添字は、行の id に置き換えます（id で指せない行の結果は List に付けます）。値を受け取って結果を返す関数も渡せます
+- **いつも今のデータの結果**: 結果はデータから導くので、値を直せばすぐ消えます。検証を走らせる操作はありません。読まれたときだけ規則を当て、変わっていない Record・行の規則は走らせ直しません
+- **いつ見せるかは UI が決める**: 入力し始めてすぐエラーを見せるかどうかなどは、UI の側で決めます（例: 触った後や送信した後だけ見せる）
+- **外から入れる結果**: サーバーが返したエラーなどは、出どころの名前を付けて `setIssues('server', issues)` で入れます。出どころごとに置き換わり、規則の結果とまとめて読めます。`{ clearOnChange: true }` を付けると、そのパスの値が入れたときと違う間は読みません（直せば消え、元に戻すとまた出ます）
+- **非同期の検証**: 規則とスキーマは同期だけです。重複の確認などの非同期の検証は、利用者が走らせて、結果を `setIssues` で入れてください
 
 ### 編集しても当て直さない（入力画面）
 
@@ -255,9 +296,10 @@ if (model.kind === 'field') {
 - **関数の値**: `set` に渡した関数は「前の値から新しい値を作る関数」として扱うので、関数そのものを Field の値にはできません（React の `setState` と同じ）
 - **定義に無いキー**: 呼んだメソッドがモデルの種類を決めます（定義に無いキーに `list()` を呼べば List として扱い、id は既定の `'id'` で読みます）。`at(path)` は定義が無い所をキーでたどるので、設定から List の行を指すには定義が要ります
 - **開発時の警告**: 上の場面では `console.warn` で知らせます。`process.env.NODE_ENV` が `'production'` のときは出しません
-- **扱わないもの**: サーバーからのデータの取得・キャッシュ・取得の状態（読み込み中など）は扱いません。React Query・SWR などで取得し、その結果をルートのモデルに渡してください
+- **データの取得**: サーバーから取得するときは、React Query・SWR などで取得し、その結果をルートのモデルに渡します（制御の形なら、取得の結果をそのまま `data` に渡せます）
 - **派生モデルの `record(id)`**: 結果に含まれない行（絞り込まれた行）も指します。元の List のモデルの `record(id)` と同じオブジェクトを返すので、絞り込みの条件が変わっても、編集中のフォームは行を指し続けます。結果に含まれるかは `ids()` で確かめます
 - **絞り込み・並べ替えの関数**: 結果を作り直すたびに呼ばれます。行を書き換えず、同じ行には同じ答えを返す関数にしてください。並べ替えは安定で、同じ順位の行は元の順を保ちます
+- **検証の規則**: 同じ値には同じ結果を返す関数にしてください。変わっていない Record・行の規則の結果は、使い回します。省略できる入れ子・List が無いときは、その規則も下の規則も当てません（無いこと自体の検査は、親の Record の規則に書きます）。Field の規則は、値が `undefined` でも呼びます
 - **条件が無いとき**: 派生モデルは、絞り込み・並べ替えの条件が無ければ（外したときも）、上流の値をそのまま（同じ配列で）返します。グループ化した派生モデルは、`filterGroups`・`sortGroups` が無ければ、グループに分けただけの結果を返します。ただし、上流が無い（省略できる List が `undefined`）ときは、空の配列を返します
 - **当て直さないモードで保つ結果**: 最後に作った結果を保ちます。購読者がいれば上流が変わるたびに結果を作るので、画面に表示している結果がそのまま保たれます
 - **グループのキー**: キーは `Map` と同じ規則（SameValueZero）で比べます。React の `key` に使うときは、キーが文字列でなければ `String(group.key)` などで文字列にしてください
@@ -302,12 +344,12 @@ List のルートのモデルを作ります（一覧など）。オプション
 
 ```ts
 createFieldModel<V>(
-  definition: FieldDefinition,
+  definition: FieldDefinition<V>,
   options: FieldModelOptions<V>,
 ): FieldModel<V> & ModelRoot<V>
 ```
 
-Field のルートのモデルを作ります（単独の入力など）。オプションは `createRecordModel` と同じで、データの型は `V` です。今の Field の定義に書けるものは `kind` だけなので、`{}` を渡します。
+Field のルートのモデルを作ります（単独の入力など）。オプションは `createRecordModel` と同じで、データの型は `V` です。規則が無ければ、定義は `{}` を渡します。
 
 ### `ReadonlyModel<V>`
 
@@ -608,66 +650,121 @@ createListSelection<E, S extends ListSource<E>>(
 createModelStatus<M extends ModelStatusSource>(source: M): ModelStatus<M>
 ```
 
-状態のモデル（変更済みか・触ったか）を作ります。つなげるのは Record・List のモデル（ルートでも下位でもよい）です。派生モデルにはつなげません。
+状態のモデル（変更済みか）を作ります。つなげるのは Record・List のモデル（ルートでも下位でもよい）です。派生モデルにはつなげません。
 
 ### `ModelStatus<M>`
 
 状態のモデル。`path` は、つないだモデルからの相対的なキーと id のパスで、省略すると、つないだモデル全体を指します。
 
-| メンバー         | 説明                                                                    |
-| ---------------- | ----------------------------------------------------------------------- |
-| `dirty(path?)`   | 変更済みかを読むモデル（同じパスなら同じオブジェクト）                  |
-| `touched(path?)` | 触ったかを読むモデル（そのパスか、その下のどこかを触っていれば `true`） |
-| `touch(path)`    | 触ったことにする                                                        |
-| `markClean()`    | 基準のデータを今のデータに置き直す。変更済みはすべて外れる              |
-| `clearTouched()` | 触ったことをすべて外す                                                  |
-| `reset()`        | `markClean()` と `clearTouched()` の両方                                |
-| `source`         | つないだモデル                                                          |
+| メンバー       | 説明                                                       |
+| -------------- | ---------------------------------------------------------- |
+| `dirty(path?)` | 変更済みかを読むモデル（同じパスなら同じオブジェクト）     |
+| `markClean()`  | 基準のデータを今のデータに置き直す。変更済みはすべて外れる |
+| `source`       | つないだモデル                                             |
+
+### `createModelValidation`
+
+```ts
+createModelValidation<M extends ModelValidationSource>(
+  source: M,
+  options?: ModelValidationOptions<V>,
+): ModelValidation<M>
+```
+
+検証のモデルを作ります。つなげるのは Field・Record・List のモデル（ルートでも下位でもよい）です。派生モデルにはつなげません。`V` は `source` の値の型です。定義の規則（`validate`）は、つないだモデルの定義から読みます。
+
+| オプション  | 型                                                     | 説明                                                                                                                             |
+| ----------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `validate?` | `StandardSchemaV1 \| ((value: V) => ValidationResult)` | つないだモデル全体の規則。Standard Schema のスキーマか、値を受け取って結果を返す関数。結果のパスは、つないだモデルからの相対パス |
+
+### `ModelValidation<M>`
+
+検証のモデル。`path` は、つないだモデルからの相対的なキーと id のパスで、省略すると、つないだモデル全体を指します。読む結果は、規則の結果と外から入れた結果をまとめたものです。
+
+| メンバー                                      | 説明                                                                                               |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `issues(path?)`                               | そのパスちょうどの結果（`readonly ValidationIssue[]`）を読むモデル（同じパスなら同じオブジェクト） |
+| `invalid(path?)`                              | そのパスか、その下のどこかに結果があるかを読むモデル（同じパスなら同じオブジェクト）               |
+| `setIssues(origin, issues, options?)`         | 外から入れる結果を、出どころごと丸ごと置き換える                                                   |
+| `setIssuesAt(origin, path, issues, options?)` | 外から入れる結果を、出どころの1つのパスだけ置き換える（空の配列で消す）                            |
+| `clearIssues(origin?)`                        | 外から入れた結果を消す（出どころを省略すると、すべて）                                             |
+| `source`                                      | つないだモデル                                                                                     |
+
+#### `setIssues` / `setIssuesAt`
+
+```ts
+setIssues(
+  origin: string,
+  issues: readonly ValidationIssueInput[],
+  options?: SetIssuesOptions,
+): void
+setIssuesAt(
+  origin: string,
+  path: readonly RecordId[],
+  issues: readonly ValidationIssue[],
+  options?: SetIssuesOptions,
+): void
+```
+
+サーバーが返したエラーや非同期の検証の結果など、規則の外から来た結果を入れます。結果は出どころの名前（`origin`）ごとに置き、規則の結果が変わっても消えません。今のデータに無いパス（消えた行など）の結果は読みません。同じ id の行が戻れば、また読みます。
+
+| オプション       | 型        | 説明                                                                                                       |
+| ---------------- | --------- | ---------------------------------------------------------------------------------------------------------- |
+| `clearOnChange?` | `boolean` | そのパスの値が、入れたときと違う間は読まない（中身で比べる）。サーバーのエラーを、直したら消えるようにする |
 
 ### 定義
 
-| 定義                  | 形                              | 説明                                                                                      |
-| --------------------- | ------------------------------- | ----------------------------------------------------------------------------------------- |
-| `FieldDefinition`     | `{ kind?: 'field' }`            | 値を入れる Field。`kind` を省略した定義はこれになる                                       |
-| `RecordDefinition<T>` | `{ kind: 'record'; fields? }`   | `fields` は項目ごとの定義。書いていない項目は普通の値として扱う                           |
-| `ListDefinition<E>`   | `{ kind: 'list'; id?; record }` | `id` は id のキーの名前か、行から id を取り出す関数（既定は `'id'`）。`record` は行の定義 |
+| 定義                  | 形                                         | 説明                                                                                      |
+| --------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `FieldDefinition<V>`  | `{ kind?: 'field'; validate? }`            | 値を入れる Field。`kind` を省略した定義はこれになる                                       |
+| `RecordDefinition<T>` | `{ kind: 'record'; fields?; validate? }`   | `fields` は項目ごとの定義。書いていない項目は普通の値として扱う                           |
+| `ListDefinition<E>`   | `{ kind: 'list'; id?; record; validate? }` | `id` は id のキーの名前か、行から id を取り出す関数（既定は `'id'`）。`record` は行の定義 |
 
-定義は素のオブジェクトなので、JSON から作れます（`id` に関数を使う場合を除く）。
+`validate` は検証の規則で、検証のモデルが使います。Field は値、Record は Record、List は行の配列を受け取り、`ValidationResult`（メッセージの文字列、結果の配列、`undefined`）を返します。
+
+定義は素のオブジェクトなので、JSON から作れます（`id` や `validate` に関数を使う場合を除く）。
 
 ### 型
 
-| 型                         | 説明                                                       |
-| -------------------------- | ---------------------------------------------------------- |
-| `FieldModel<V>`            | Field のモデル                                             |
-| `RecordModel<T>`           | Record のモデル                                            |
-| `ListModel<E>`             | List のモデル                                              |
-| `ReadonlyModel<V>`         | 読んで購読できるもの                                       |
-| `ModelRoot<D>`             | ルートのモデルだけが持つもの                               |
-| `ModelReceiveOptions`      | `receive` のオプション                                     |
-| `UnknownModel`             | `at()` が返すモデル（`kind` で絞り込む）                   |
-| `ModelChangeEvent<V>`      | listener に渡すもの（`{ value, previousValue }`）          |
-| `ModelListener<V>`         | listener                                                   |
-| `ModelPath`                | キーと id のパス（`readonly string[]`）                    |
-| `RecordId`                 | id として渡せる値（`string \| number`）                    |
-| `FieldDefinition`          | Field の定義                                               |
-| `RecordDefinition<T>`      | Record の定義                                              |
-| `ListDefinition<E>`        | List の定義                                                |
-| `DefinitionOf<V>`          | 値の型に合う定義（Field・Record・List のどれか）           |
-| `FieldKeys<T>`             | `field()` に渡せるキー                                     |
-| `RecordKeys<T>`            | `record()` に渡せるキー                                    |
-| `ListKeys<T>`              | `list()` に渡せるキー                                      |
-| `RecordModelOptions<T>`    | `createRecordModel` のオプション                           |
-| `ListModelOptions<E>`      | `createListModel` のオプション                             |
-| `FieldModelOptions<V>`     | `createFieldModel` のオプション                            |
-| `DerivedList<E, S>`        | 標準の派生モデル                                           |
-| `DerivedListOptions<E>`    | `createDerivedList` のオプション                           |
-| `ListSource<E>`            | 派生モデルの上流になれる一覧（`ListModel`・`DerivedList`） |
-| `RefreshMode`              | 派生モデルが上流の変化で当て直すか（`'auto'`・`'manual'`） |
-| `ListSelection<E, S>`      | 一覧の選択のモデル                                         |
-| `ListSelectionOptions`     | `createListSelection` のオプション                         |
-| `ModelStatus<M>`           | 状態のモデル（変更済みか・触ったか）                       |
-| `ModelStatusSource`        | 状態のモデルにつなげるモデル（Record・List のモデル）      |
-| `GroupedList<K, E, S>`     | グループ化した派生モデル                                   |
-| `GroupedListOptions<E, K>` | `createGroupedList` のオプション                           |
-| `ListGroup<K, E>`          | グループ化した派生モデルの、1つのグループ                  |
-| `GroupBy<E, K>`            | グループの分け方（キーの名前か、行からキーを取り出す関数） |
+| 型                          | 説明                                                         |
+| --------------------------- | ------------------------------------------------------------ |
+| `FieldModel<V>`             | Field のモデル                                               |
+| `RecordModel<T>`            | Record のモデル                                              |
+| `ListModel<E>`              | List のモデル                                                |
+| `ReadonlyModel<V>`          | 読んで購読できるもの                                         |
+| `ModelRoot<D>`              | ルートのモデルだけが持つもの                                 |
+| `ModelReceiveOptions`       | `receive` のオプション                                       |
+| `UnknownModel`              | `at()` が返すモデル（`kind` で絞り込む）                     |
+| `ModelChangeEvent<V>`       | listener に渡すもの（`{ value, previousValue }`）            |
+| `ModelListener<V>`          | listener                                                     |
+| `ModelPath`                 | キーと id のパス（`readonly string[]`）                      |
+| `RecordId`                  | id として渡せる値（`string \| number`）                      |
+| `FieldDefinition<V>`        | Field の定義                                                 |
+| `RecordDefinition<T>`       | Record の定義                                                |
+| `ListDefinition<E>`         | List の定義                                                  |
+| `DefinitionOf<V>`           | 値の型に合う定義（Field・Record・List のどれか）             |
+| `FieldKeys<T>`              | `field()` に渡せるキー                                       |
+| `RecordKeys<T>`             | `record()` に渡せるキー                                      |
+| `ListKeys<T>`               | `list()` に渡せるキー                                        |
+| `RecordModelOptions<T>`     | `createRecordModel` のオプション                             |
+| `ListModelOptions<E>`       | `createListModel` のオプション                               |
+| `FieldModelOptions<V>`      | `createFieldModel` のオプション                              |
+| `DerivedList<E, S>`         | 標準の派生モデル                                             |
+| `DerivedListOptions<E>`     | `createDerivedList` のオプション                             |
+| `ListSource<E>`             | 派生モデルの上流になれる一覧（`ListModel`・`DerivedList`）   |
+| `RefreshMode`               | 派生モデルが上流の変化で当て直すか（`'auto'`・`'manual'`）   |
+| `ListSelection<E, S>`       | 一覧の選択のモデル                                           |
+| `ListSelectionOptions`      | `createListSelection` のオプション                           |
+| `ModelStatus<M>`            | 状態のモデル（変更済みか）                                   |
+| `ModelStatusSource`         | 状態のモデルにつなげるモデル（Record・List のモデル）        |
+| `ModelValidation<M>`        | 検証のモデル                                                 |
+| `ModelValidationOptions<V>` | `createModelValidation` のオプション                         |
+| `ModelValidationSource`     | 検証のモデルにつなげるモデル（Field・Record・List のモデル） |
+| `SetIssuesOptions`          | `setIssues`・`setIssuesAt` のオプション                      |
+| `ValidationIssue`           | 検証の結果の1つ（`{ message }`。足したプロパティは保つ）     |
+| `ValidationIssueInput`      | 規則が返す・外から入れる結果（`ValidationIssue` と `path?`） |
+| `ValidationResult`          | 規則が返すもの（文字列・結果の配列・`undefined`）            |
+| `GroupedList<K, E, S>`      | グループ化した派生モデル                                     |
+| `GroupedListOptions<E, K>`  | `createGroupedList` のオプション                             |
+| `ListGroup<K, E>`           | グループ化した派生モデルの、1つのグループ                    |
+| `GroupBy<E, K>`             | グループの分け方（キーの名前か、行からキーを取り出す関数）   |

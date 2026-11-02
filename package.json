@@ -34,7 +34,8 @@
     "tidy": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\" --config ./prettier.tidy.config.ts"
   },
   "dependencies": {
-    "@fringeworks/utils": "^2.1.0"
+    "@fringeworks/utils": "^2.1.0",
+    "@standard-schema/spec": "^1.1.0"
   },
   "devDependencies": {
     "@fringeworks/dev": "^0.13.2",

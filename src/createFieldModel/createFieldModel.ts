@@ -15,7 +15,7 @@ import type { FieldModelOptions } from './types';
  * @returns ルートのモデル
  */
 export default function createFieldModel<V>(
-  definition: FieldDefinition,
+  definition: FieldDefinition<V>,
   options: FieldModelOptions<V>,
 ): FieldModel<V> & ModelRoot<V> {
   return _createRootModel(

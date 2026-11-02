@@ -215,14 +215,49 @@ export type ModelReceiveOptions = {
 };
 
 // ---------------------------------------------------------------------------
+// 検証の結果
+// ---------------------------------------------------------------------------
+
+/**
+ * 検証の結果の1つ（Standard Schema の issue と同じ最小の形）\
+ * 利用者が足したプロパティ（翻訳用のコードなど）は、そのまま保つ
+ */
+export type ValidationIssue = {
+  readonly message: string;
+  readonly [key: string]: unknown;
+};
+
+/**
+ * 規則が返す・外から入れる、検証の結果の1つ\
+ * `path` は、規則を書いた所（入れるときはつないだモデル）からの相対的なキーと id のパス。省略すると、その所自身
+ */
+export type ValidationIssueInput = ValidationIssue & {
+  readonly path?: readonly RecordId[];
+};
+
+/**
+ * 規則が返すもの
+ *
+ * - 文字列: その所自身の結果のメッセージ1つ
+ * - 配列: 結果の一覧（パスを付けると、下の所の結果にできる）
+ * - `undefined`・空の配列: 問題なし
+ */
+export type ValidationResult =
+  string | readonly ValidationIssueInput[] | undefined;
+
+// ---------------------------------------------------------------------------
 // 定義
 // ---------------------------------------------------------------------------
 
 /**
  * Field の定義
  */
-export interface FieldDefinition {
+export interface FieldDefinition<V = unknown> {
   kind?: 'field';
+  /**
+   * 値の規則（検証のモデルが使う）。値が無いとき（省略できる項目など）は `undefined` を受け取る
+   */
+  validate?: (value: V) => ValidationResult;
 }
 
 /**
@@ -231,6 +266,11 @@ export interface FieldDefinition {
 export interface RecordDefinition<T> {
   kind: 'record';
   fields?: { [K in keyof T]?: DefinitionOf<T[K]> };
+  /**
+   * Record の規則（検証のモデルが使う）。項目をまたぐ検査を書く。結果のパスは Record からの相対パス。
+   * Record が無いとき（省略できる入れ子など）は呼ばない
+   */
+  validate?: (record: T) => ValidationResult;
 }
 
 /**
@@ -246,13 +286,18 @@ type ListIdOption<E> = 'id' extends keyof E
 export type ListDefinition<E> = {
   kind: 'list';
   record: RecordDefinition<E>;
+  /**
+   * List の規則（検証のモデルが使う）。行をまたぐ検査（件数・重複など）を書く。結果のパスは List からの相対パス（最初の段は行の id）。
+   * List が無いとき（省略できる List）は呼ばない
+   */
+  validate?: (records: readonly E[]) => ValidationResult;
 } & ListIdOption<E>;
 
 /**
  * 値の型に合う定義（Field・Record・List のどれか）
  */
 export type DefinitionOf<V> =
-  | FieldDefinition
+  | FieldDefinition<V>
   | (IsPlainObject<NonNullable<V>> extends true
       ? RecordDefinition<NonNullable<V>>
       : never)

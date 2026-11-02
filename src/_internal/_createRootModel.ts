@@ -11,6 +11,7 @@ import _createIdsModel from './_createIdsModel';
 import _createNotifier, { type NotifierSubscribe } from './_createNotifier';
 import _getIn, { type Segment } from './_getIn';
 import { _setListIdOf } from './_listIdOf';
+import { _setModelDefinition } from './_modelDefinitions';
 import { _setModelSegments } from './_modelSegments';
 import _normalizeId from './_normalizeId';
 import _updateIn, { type Updater } from './_updateIn';
@@ -91,6 +92,7 @@ function createModel(
 
   if (kind === 'field') {
     _setModelSegments(base, segments);
+    _setModelDefinition(base, definition);
     return base;
   }
 
@@ -121,6 +123,7 @@ function createModel(
         walkPath(recordModel, 'record', definition, relativePath),
     };
     _setModelSegments(recordModel, segments);
+    _setModelDefinition(recordModel, definition);
     return recordModel;
   }
 
@@ -154,6 +157,7 @@ function createModel(
   };
   _setListIdOf(listModel, idOf);
   _setModelSegments(listModel, segments);
+  _setModelDefinition(listModel, definition);
   return listModel;
 }
 

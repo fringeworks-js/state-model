@@ -121,40 +121,6 @@ describe('createModelStatus', () => {
     });
   });
 
-  describe('触ったか', () => {
-    it('touch で触ったことにし、そのパスと親のパスで true になる', () => {
-      const { status } = setup();
-      expect(status.touched(['lines']).get()).toBe(false);
-      status.touch(['lines', 'L-2', 'price']);
-      expect(status.touched(['lines', 'L-2', 'price']).get()).toBe(true);
-      expect(status.touched(['lines', 'L-2']).get()).toBe(true);
-      expect(status.touched(['lines']).get()).toBe(true);
-      expect(status.touched().get()).toBe(true);
-      expect(status.touched(['lines', 'L-1']).get()).toBe(false);
-      expect(status.touched(['customer']).get()).toBe(false);
-    });
-
-    it('同じパスを何度触っても1回だけ知らせ、clearTouched で外す', () => {
-      const { status } = setup();
-      const listener = vi.fn();
-      status.touched(['customer']).subscribe(listener);
-      status.touch(['customer']);
-      status.touch(['customer']);
-      expect(listener).toHaveBeenCalledTimes(1);
-      status.clearTouched();
-      expect(status.touched(['customer']).get()).toBe(false);
-    });
-
-    it('reset は変更済みと触ったことの両方を外す', () => {
-      const { order, status } = setup();
-      order.field('customer').set('Bob');
-      status.touch(['customer']);
-      status.reset();
-      expect(status.dirty().get()).toBe(false);
-      expect(status.touched().get()).toBe(false);
-    });
-  });
-
   it('派生モデルにはつなげない（開発時に警告する）', () => {
     const { order } = setup();
     const derived = createDerivedList(order.list('lines'));

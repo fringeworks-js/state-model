@@ -57,13 +57,23 @@ export type ModelOptions<D> =
  * 実行時に扱う定義（型を外したもの）
  */
 export type AnyDefinition =
-  | { kind?: 'field' }
-  | { kind: 'record'; fields?: Record<string, AnyDefinition | undefined> }
+  | { kind?: 'field'; validate?: AnyValidate }
+  | {
+      kind: 'record';
+      fields?: Record<string, AnyDefinition | undefined>;
+      validate?: AnyValidate;
+    }
   | {
       kind: 'list';
       id?: string | ((record: never) => unknown);
       record?: AnyDefinition;
+      validate?: AnyValidate;
     };
+
+/**
+ * 実行時に扱う、定義の規則（型を外したもの）
+ */
+export type AnyValidate = (value: never) => unknown;
 
 /**
  * モデルの種類
