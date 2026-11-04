@@ -230,7 +230,7 @@ describe('createRecordModel', () => {
       };
       const order = createRecordModel(orderDefinition, {
         data: store.get(),
-        onChangeData: store.set,
+        onDataChange: store.set,
       });
       listeners.add(() => order.receive(store.get()));
 
@@ -245,7 +245,7 @@ describe('createRecordModel', () => {
       const changes: Order[] = [];
       const order = createRecordModel(orderDefinition, {
         data: createOrder(),
-        onChangeData: (next) => changes.push(next),
+        onDataChange: (next) => changes.push(next),
       });
       order.field('customer').set('Bob');
       order.list('lines').record('L-1').field('price').set(1);
@@ -260,7 +260,7 @@ describe('createRecordModel', () => {
       const changes: Order[] = [];
       const order = createRecordModel(orderDefinition, {
         data: createOrder(),
-        onChangeData: (next) => changes.push(next),
+        onDataChange: (next) => changes.push(next),
       });
       order.field('customer').set('Bob');
       await Promise.resolve();
@@ -274,7 +274,7 @@ describe('createRecordModel', () => {
       const changes: Order[] = [];
       const order = createRecordModel(orderDefinition, {
         data: createOrder(),
-        onChangeData: (next) => changes.push(next), // 受け取るだけで、渡し直さない
+        onDataChange: (next) => changes.push(next), // 受け取るだけで、渡し直さない
       });
       order.field('customer').set('Bob');
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -289,7 +289,7 @@ describe('createRecordModel', () => {
       const changes: Order[] = [];
       const order = createRecordModel(orderDefinition, {
         data: initial,
-        onChangeData: (next) => changes.push(next),
+        onDataChange: (next) => changes.push(next),
       });
       const onShipping = vi.fn();
       const onLines = vi.fn();
@@ -309,7 +309,7 @@ describe('createRecordModel', () => {
       const initial = createOrder();
       const order = createRecordModel(orderDefinition, {
         data: initial,
-        onChangeData: () => {},
+        onDataChange: () => {},
       });
       const onCustomer = vi.fn();
       const onShipping = vi.fn();
@@ -337,7 +337,7 @@ describe('createRecordModel', () => {
       const initial = createOrder();
       const order = createRecordModel(orderDefinition, {
         data: initial,
-        onChangeData: () => {},
+        onDataChange: () => {},
       });
       const listener = vi.fn();
       order.subscribe(listener);

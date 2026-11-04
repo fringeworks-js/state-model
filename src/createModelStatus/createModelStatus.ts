@@ -42,7 +42,8 @@ export default function createModelStatus<M extends ModelStatusSource>(
     dirtyCache.get(toKey(path), () => {
       const target = source.at(path);
       const segments = _getModelSegments(target) ?? [];
-      // つないだモデルからの相対的なたどり方で、基準のデータの値を読む
+      // つないだモデルからの相対的なたどり方で、基準のデータの値を読む。
+      // 行は id で引くので、並びが変わっても同じ id の行どうしを比べる
       const relative = segments.slice(sourceSegments?.length ?? 0);
       const derived = _createDerivedModel<
         readonly [unknown, unknown],

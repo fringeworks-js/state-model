@@ -58,6 +58,7 @@ export default function _createDerivedModel<I, S, O>(
   let detach: (() => void) | undefined;
   const subscribe: NotifierSubscribe = (read, listener) => {
     if (subscriberCount === 0) {
+      // 上流が変わったら、自分の購読者に読み直させる。結果が前と同じなら、notifier が listener を呼ばない
       detach = source.subscribe(() => notifier.notify());
     }
     subscriberCount++;

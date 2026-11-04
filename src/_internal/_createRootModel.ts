@@ -97,6 +97,7 @@ function createModel(
   }
 
   if (kind === 'record') {
+    // 同じキーでも、呼んだメソッド（モデルの種類）が違えば別のモデルにする
     const child = (childKind: ModelKind, key: string) =>
       children.get(`${childKind}\u0000${key}`, () => {
         const childDefinition = fieldDefinitionOf(definition, key);
@@ -221,7 +222,7 @@ function warnIfList(
 /**
  * ルートのモデルを作る（非制御・制御）
  *
- * 制御のときは、書き込みを「反映待ちのデータ」に積み、onChangeData でデータの持ち主に渡す。
+ * 制御のときは、書き込みを「反映待ちのデータ」に積み、onDataChange でデータの持ち主に渡す。
  * 反映待ちのデータは、外から受け取ったとき（receive）か、次のマクロタスクで捨てる
  */
 export default function _createRootModel(
@@ -229,7 +230,7 @@ export default function _createRootModel(
   options: ModelOptions<unknown>,
 ): object {
   const notifier = _createNotifier();
-  const controlled = 'onChangeData' in options;
+  const controlled = 'onDataChange' in options;
   let data: unknown = controlled ? options.data : options.defaultData;
   let pending: unknown = NONE;
   let resetScheduled = false;
@@ -239,6 +240,7 @@ export default function _createRootModel(
   const core: RootCore = {
     read: () => data,
     write(segments, updater) {
+      // 同じ処理の中で続けて書いたとき、前の変更を消さないよう、反映待ちのデータの上に積む
       const base = pending === NONE ? data : pending;
       const result = _updateIn(base, segments, updater);
       if (!result.ok) {
@@ -253,7 +255,9 @@ export default function _createRootModel(
         notifier.notify();
         return;
       }
+      // 制御のときは data を変えず、知らせもしない。データの持ち主が receive で渡し直したときに知らせる
       pending = result.data;
+      // データの持ち主が変更を受け入れなかったとき、次のタスクの書き込みに混ざらないよう捨てる
       if (!resetScheduled) {
         resetScheduled = true;
         setTimeout(() => {
@@ -261,7 +265,7 @@ export default function _createRootModel(
           pending = NONE;
         }, 0);
       }
-      options.onChangeData(result.data);
+      options.onDataChange(result.data);
     },
     subscribe: notifier.subscribe,
   };

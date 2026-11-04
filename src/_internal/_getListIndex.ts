@@ -14,7 +14,8 @@ export type ListIndex = {
 const indexCache = new WeakMap<readonly unknown[], Map<IdOf, ListIndex>>();
 
 /**
- * List の索引を作る。配列と IdOf ごとにキャッシュする
+ * List の索引を作る。配列と IdOf ごとにキャッシュする\
+ * データは書き換えず作り直す（変われば別の配列になる）ので、同じ配列なら索引も同じでよい
  *
  * - id が重複している行は、先にある方だけを含める
  * - id が有効でない行は含めない

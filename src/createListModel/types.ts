@@ -1,6 +1,6 @@
 import type { ModelOptions } from '../_types';
 
 /**
- * `createListModel` のオプション（`data` / `defaultData` / `onChangeData` の名前は仮）
+ * `createListModel` のオプション
  */
 export type ListModelOptions<E> = ModelOptions<readonly E[]>;

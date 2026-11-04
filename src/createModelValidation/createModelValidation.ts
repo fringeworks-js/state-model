@@ -375,6 +375,7 @@ export default function createModelValidation<M extends ModelValidationSource>(
     return found;
   };
 
+  // 規則の結果と外から入れた結果を、パスごとの表に1回でまとめる。issues・invalid はこの表から読む
   const table = _createDerivedModel<
     readonly [unknown, Reports],
     null,
@@ -439,6 +440,7 @@ export default function createModelValidation<M extends ModelValidationSource>(
     const normalized = normalizePath(path);
     return invalidCache.get(toKey(normalized), () =>
       toReadonlyModel(
+        // パスが前方一致する結果を探す（下のパスの結果も含める）
         _createDerivedModel(tableModel, null, (current: IssueTable) =>
           [...current.values()].some((entry) =>
             startsWith(entry.path, normalized),

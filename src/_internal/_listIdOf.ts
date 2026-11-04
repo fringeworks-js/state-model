@@ -1,7 +1,8 @@
 import _createIdOf, { type IdOf } from './_createIdOf';
 
 /**
- * 一覧のモデル（List のモデル・派生モデル）から、行の id の取り出し方を引く表
+ * 一覧のモデル（List のモデル・派生モデル）から、行の id の取り出し方を引く表\
+ * 表で持つ理由は `_modelSegments` と同じ（派生モデル・選択のモデルが、上流と同じ id の取り出し方を使うため）
  */
 const registry = new WeakMap<object, IdOf>();
 

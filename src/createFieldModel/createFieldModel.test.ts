@@ -11,14 +11,14 @@ describe('createFieldModel', () => {
     expect(listener).toHaveBeenCalledWith({ value: 2, previousValue: 1 });
   });
 
-  it('制御: onChangeData に値を渡し、receive で受け取る', () => {
-    const onChangeData = vi.fn();
+  it('制御: onDataChange に値を渡し、receive で受け取る', () => {
+    const onDataChange = vi.fn();
     const field = createFieldModel<string>(
       { kind: 'field' },
-      { data: 'a', onChangeData },
+      { data: 'a', onDataChange },
     );
     field.set('b');
-    expect(onChangeData).toHaveBeenCalledWith('b');
+    expect(onDataChange).toHaveBeenCalledWith('b');
     expect(field.get()).toBe('a');
     field.receive('b');
     expect(field.get()).toBe('b');

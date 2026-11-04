@@ -261,12 +261,12 @@ visible.refresh(); // 今の条件で当て直す
 
 ### 利用者の state を参照する（制御）
 
-`data` と `onChangeData` を渡すと、モデルはデータを中に持たず、書き込みを `onChangeData` でデータの持ち主に依頼します。データの持ち主が新しいデータを渡し直したら、`receive` で受け取ります。
+`data` と `onDataChange` を渡すと、モデルはデータを中に持たず、書き込みを `onDataChange` でデータの持ち主に依頼します。データの持ち主が新しいデータを渡し直したら、`receive` で受け取ります。
 
 ```ts
 const order = createRecordModel(orderDefinition, {
   data: store.getState().order,
-  onChangeData: (order) => store.setState({ order }),
+  onDataChange: (order) => store.setState({ order }),
 });
 store.subscribe((state) => order.receive(state.order));
 ```
@@ -303,7 +303,7 @@ if (model.kind === 'field') {
 - **条件が無いとき**: 派生モデルは、絞り込み・並べ替えの条件が無ければ（外したときも）、上流の値をそのまま（同じ配列で）返します。グループ化した派生モデルは、`filterGroups`・`sortGroups` が無ければ、グループに分けただけの結果を返します。ただし、上流が無い（省略できる List が `undefined`）ときは、空の配列を返します
 - **当て直さないモードで保つ結果**: 最後に作った結果を保ちます。購読者がいれば上流が変わるたびに結果を作るので、画面に表示している結果がそのまま保たれます
 - **グループのキー**: キーは `Map` と同じ規則（SameValueZero）で比べます。React の `key` に使うときは、キーが文字列でなければ `String(group.key)` などで文字列にしてください
-- **オプションの名前**: `data`・`defaultData`・`onChangeData` は 0.x の間に変わることがあります
+- **オプションの名前**: `data`・`defaultData`・`onDataChange` は 0.x の間に変わることがあります
 
 ## API
 
@@ -327,7 +327,7 @@ Record のルートのモデルを作ります（フォームなど）。
 | -------------- | ------------------- | -------------------------------------------------------------------- |
 | `defaultData`  | `T`                 | 非制御: 初めのデータ。モデルが中に持つ                               |
 | `data`         | `T`                 | 制御: データの持ち主のデータ                                         |
-| `onChangeData` | `(data: T) => void` | 制御: 書き込みをデータの持ち主に依頼する。新しいデータ全体を受け取る |
+| `onDataChange` | `(data: T) => void` | 制御: 書き込みをデータの持ち主に依頼する。新しいデータ全体を受け取る |
 
 ### `createListModel`
 

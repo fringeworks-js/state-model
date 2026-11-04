@@ -112,7 +112,7 @@ describe('createDerivedList', () => {
       const initial = createOrder();
       const order = createRecordModel(orderDefinition, {
         data: initial,
-        onChangeData: () => {},
+        onDataChange: () => {},
       });
       const derived = createDerivedList(order.list('lines'), { sort: byPrice });
       const listener = vi.fn();

@@ -263,12 +263,12 @@ visible.refresh(); // Reapplies the current conditions
 
 ### Referring to your state (controlled)
 
-When you pass `data` and `onChangeData`, the model does not hold the data and asks the data owner to apply each write through `onChangeData`. When the data owner passes new data back, the model takes it with `receive`.
+When you pass `data` and `onDataChange`, the model does not hold the data and asks the data owner to apply each write through `onDataChange`. When the data owner passes new data back, the model takes it with `receive`.
 
 ```ts
 const order = createRecordModel(orderDefinition, {
   data: store.getState().order,
-  onChangeData: (order) => store.setState({ order }),
+  onDataChange: (order) => store.setState({ order }),
 });
 store.subscribe((state) => order.receive(state.order));
 ```
@@ -305,7 +305,7 @@ if (model.kind === 'field') {
 - **Without conditions**: when a derived model has no filter or sort condition (including after removing them), it returns the source value as is (the same array). A grouped derived model without `filterGroups` and `sortGroups` returns the result of grouping only. However, when the source is missing (an optional List that is `undefined`), it returns an empty array
 - **The result kept when not reapplying**: the last result built is kept. With subscribers, the result is built every time the source changes, so the result on screen is kept as is
 - **Group keys**: keys are compared by the same rule as `Map` (SameValueZero). When you use a key as a React `key`, convert it to a string with `String(group.key)` or similar if it is not a string
-- **Option names**: `data`, `defaultData`, and `onChangeData` may change during 0.x
+- **Option names**: `data`, `defaultData`, and `onDataChange` may change during 0.x
 
 ## API
 
@@ -329,7 +329,7 @@ Creates a root model of the Record kind (a form and so on).
 | -------------- | ------------------- | ----------------------------------------------------------------------------- |
 | `defaultData`  | `T`                 | Uncontrolled: the initial data, held by the model                             |
 | `data`         | `T`                 | Controlled: the data owner's data                                             |
-| `onChangeData` | `(data: T) => void` | Controlled: asks the data owner to apply a write. Receives the whole new data |
+| `onDataChange` | `(data: T) => void` | Controlled: asks the data owner to apply a write. Receives the whole new data |
 
 ### `createListModel`
 

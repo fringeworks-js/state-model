@@ -176,7 +176,7 @@ describe('createListSelection', () => {
       const changes: (readonly string[])[] = [];
       const selectedIds = createFieldModel<readonly string[]>(
         {},
-        { data: [], onChangeData: (ids) => changes.push(ids) },
+        { data: [], onDataChange: (ids) => changes.push(ids) },
       );
       const selection = createListSelection(items, {
         multiple: true,

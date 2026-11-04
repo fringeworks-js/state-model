@@ -1,7 +1,8 @@
 import type { AnyDefinition } from '../_types';
 
 /**
- * データの場所のモデル（ルートのモデル・下位のモデル）から、そのモデルの定義を引く表
+ * データの場所のモデル（ルートのモデル・下位のモデル）から、そのモデルの定義を引く表\
+ * 表で持つ理由は `_modelSegments` と同じ（検証のモデルが規則を引くのに使う）
  */
 const registry = new WeakMap<object, AnyDefinition | undefined>();
 
