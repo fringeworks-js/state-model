@@ -303,7 +303,7 @@ if (model.kind === 'field') {
 - **Filter and sort functions**: they are called every time the result is rebuilt. Do not change records in them, and return the same answer for the same records. Sorting is stable, and records that compare equal keep the original order
 - **Validation rules**: return the same issues for the same value. The issues of rules for unchanged records are reused. When an optional nested record or List is missing, neither its rule nor the rules under it are applied (check that it is missing in the rule of the parent Record). Field rules are called even when the value is `undefined`
 - **Without conditions**: when a derived model has no filter or sort condition (including after removing them), it returns the source value as is (the same array). A grouped derived model without `filterGroups` and `sortGroups` returns the result of grouping only. However, when the source is missing (an optional List that is `undefined`), it returns an empty array
-- **The result kept when not reapplying**: the last result built is kept. With subscribers, the result is built every time the source changes, so the result on screen is kept as is
+- **The result kept when not reapplying**: the result is reapplied when a condition or mode is replaced (including `refresh()`) and kept from then on as the source changes. The result is built at the time of the replacement, even without subscribers
 - **Group keys**: keys are compared by the same rule as `Map` (SameValueZero). When you use a key as a React `key`, convert it to a string with `String(group.key)` or similar if it is not a string
 - **Option names**: `data`, `defaultData`, and `onDataChange` may change during 0.x
 

@@ -84,6 +84,8 @@ export default function _createDerivedModel<I, S, O>(
    */
   const setState = (next: S) => {
     state = next;
+    // 購読者がいなくても、差し替えた時点の結果を作っておく（当て直さないモードで保つ結果が、読まれたかどうかで変わらないように）
+    get();
     notifier.notify();
   };
 

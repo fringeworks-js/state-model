@@ -190,6 +190,20 @@ describe('createGroupedList', () => {
       groups: readonly { key: unknown; ids: readonly string[] }[],
     ) => groups.map((group) => [group.key, group.ids]);
 
+    it('購読者がいなくても、モードを切り替えた時点のグループ分けを保つ', () => {
+      const items = createItems();
+      const grouped = createGroupedList(items, { groupBy: 'category' });
+      grouped.get();
+      // 切り替えた後、読まないまま上流を変える
+      grouped.setFilterRefresh('manual');
+      items.record('I-1').field('category').set('C-2');
+      expect(pairs(grouped.get())).toEqual([
+        ['C-1', ['I-1', 'I-4']],
+        ['C-2', ['I-2', 'I-5']],
+        ['C-3', ['I-3', 'I-6']],
+      ]);
+    });
+
     it('グループ分けを当て直さない: キーを書き換えた行も元のグループに残る。refresh() で移る', () => {
       const items = createItems();
       const grouped = createGroupedList(items, {

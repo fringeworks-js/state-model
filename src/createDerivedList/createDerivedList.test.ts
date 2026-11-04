@@ -328,6 +328,18 @@ describe('createDerivedList', () => {
       expect(lineIds(derived.get())).toEqual(['L-1', 'L-3']);
     });
 
+    it('購読者がいなくても、モードを切り替えた時点の結果を保つ', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        filter: (line) => line.price >= 200,
+      });
+      expect(lineIds(derived.get())).toEqual(['L-2', 'L-3']);
+      // 切り替えた後、読まないまま上流を変える
+      derived.setFilterRefresh('manual');
+      lines.record('L-2').field('price').set(1);
+      expect(lineIds(derived.get())).toEqual(['L-2', 'L-3']);
+    });
+
     it('条件が無ければ、当て直さないモードでも上流をそのまま返す', () => {
       const { lines } = setup();
       const derived = createDerivedList(lines, {

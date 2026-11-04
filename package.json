@@ -1,6 +1,6 @@
 {
   "name": "@fringeworks/state-model",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "A library some will find handy, for holding the state of lists, forms, and fields in a standard shape (List / Record / Field) and updating it by path without mutation.",
   "keywords": [
