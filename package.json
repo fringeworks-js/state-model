@@ -1,6 +1,6 @@
 {
   "name": "@fringeworks/state-model",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "description": "A library some will find handy, for holding the state of lists, forms, and fields in a standard shape (List / Record / Field) and updating it by path without mutation.",
   "keywords": [
@@ -34,11 +34,11 @@
     "tidy": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\" --config ./prettier.tidy.config.ts"
   },
   "dependencies": {
-    "@fringeworks/utils": "^2.1.0",
+    "@fringeworks/utils": "^2.2.0",
     "@standard-schema/spec": "^1.1.0"
   },
   "devDependencies": {
-    "@fringeworks/dev": "^0.13.2",
+    "@fringeworks/dev": "^0.13.3",
     "@types/node": "^25.9.9",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.12.0",
