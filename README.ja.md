@@ -186,7 +186,7 @@ status.dirty(['lines', 'L-3']).get(); // 明細 L-3 が変更済みか
 status.markClean(); // 保存した後などに、今のデータを基準にする
 ```
 
-- 作ったときのデータを基準にし、パスごとに今の値と比べます。参照が同じなら同じとし、違えば、素のオブジェクトと配列は中身を比べます（それ以外の値は `Object.is`）。項目を元の値に戻せば、行やフォーム全体も変更済みでなくなります。変わっていない部分は参照が同じなので、比べ直すのは変わった枝だけです
+- 作ったときのデータを基準にし、パスごとに今の値と比べます。参照が同じなら同じとし、違えば、素のオブジェクトと配列は中身を、`Date` は時刻を比べます（それ以外の値は `Object.is`）。項目を元の値に戻せば、行やフォーム全体も変更済みでなくなります。変わっていない部分は参照が同じなので、比べ直すのは変わった枝だけです
 - `dirty(path)` は真偽値を読むモデルを返し、同じパスなら同じオブジェクトです。値が変わったときだけ購読者に知らせます
 - 制御のとき、保存した後にデータを取り直したら、`markClean()` を呼んで基準を置き直してください
 
@@ -235,7 +235,7 @@ validation.invalid().get(); // フォームのどこかに結果があるか（�
 
 ### 編集しても当て直さない（入力画面）
 
-派生モデルは、上流が変わるとすぐ絞り込み・並べ替えを当て直します。入力画面では、絞り込みの条件から外れる値を入力した瞬間に行が消えたり、並べ替えのキーを編集した瞬間に行が飛んだりします。`filterRefresh`・`sortRefresh` を `'manual'` にすると、上流が変わっても当て直さず、`refresh()` を呼ぶか条件を差し替えたときに当て直します。
+派生モデルは、上流が変わるとすぐ絞り込み・並べ替えを当て直します。入力画面では、絞り込みの条件から外れる値を入力した瞬間に行が消えたり、並べ替えのキーを編集した瞬間に行が飛んだりします。`filterRefresh`・`sortRefresh` を `'manual'` にすると、上流が変わっても、当て直した時点の行の集まりと並び順を保ち、`refresh()` を呼ぶか条件を差し替えたときに当て直します。
 
 ```ts
 const visible = createDerivedList(order.list('lines'), {
@@ -248,15 +248,19 @@ const visible = createDerivedList(order.list('lines'), {
 visible.refresh(); // 今の条件で当て直す
 ```
 
-| 上流の変化                                     | 当て直さないモードでの動き                                           |
-| ---------------------------------------------- | -------------------------------------------------------------------- |
-| 行の中身が変わった（編集）                     | 結果に入る行と並び順は保ち、行の中身は新しいものにする               |
-| 行が消えた                                     | 結果からも消える                                                     |
-| 行が足された                                   | 条件を当てずに末尾に足す（足した空の行が、絞り込みで消えずに見える） |
-| 条件・モードを差し替えた、`refresh()` を呼んだ | 当て直す                                                             |
+| 上流の変化                                                       | 当て直さないモードでの動き                                                                   |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 行の中身が変わった（編集）                                       | 結果に入る行と並び順は保ち、行の中身は新しいものにする                                       |
+| 上流の派生モデルが行を外した・並べ直した                         | 保つ（外された行も、中身を新しくして残る）                                                   |
+| 行が消えた（元の一覧から消えた）                                 | 結果からも消える                                                                             |
+| この派生モデルの `insert` で行を足した                           | 条件を当てずに末尾に足す（足した空の行が、絞り込みで消えずに見え、そのまま入力し始められる） |
+| ほかの所で行が足された・上流の派生モデルの条件に合うようになった | 当て直すまで入れない                                                                         |
+| 条件・モードを差し替えた、`refresh()` を呼んだ                   | 当て直す                                                                                     |
 
-- 絞り込みと並べ替えは別々に選べます。「完了にした行はすぐ消すが、優先度を編集しても位置は動かさない」なら、`sortRefresh` だけを `'manual'` にします
-- グループ化した派生モデルも同じオプションを持ちます。`filterRefresh` はグループ分け（`groupBy`）とグループの絞り込みを、`sortRefresh` はグループの並べ替えを受け持ちます。`'manual'` なら、グループのキーを書き換えた行も、当て直すまで元のグループに残ります。行が無くなったグループは消えます
+- 絞り込みと並べ替えは別々に選べます。「完了にした行はすぐ消すが、優先度を編集しても位置は動かさない」なら、`sortRefresh` だけを `'manual'` にします（このときは入る行が上流に従うので、上流の派生モデルが外した行は消えます）
+- 派生モデルを重ねた場合（システムが絞り込んだ一覧の上に、ユーザーが絞り込む一覧を重ねるなど）は、画面に見せる派生モデルだけを `'manual'` にすれば、上流の派生モデルの変化からも結果が守られます。当て直すときは、その派生モデルの `refresh()` を呼びます（上流の派生モデルの今の結果に合わせて当て直します）
+- 条件が無くても、`'manual'` なら結果を保ちます（ユーザーが条件をすべて外しても、守りが外れません）
+- グループ化した派生モデルも同じオプションを持ちます。`filterRefresh` はグループ分け（`groupBy`）とグループの絞り込みを、`sortRefresh` はグループの並べ替えを受け持ちます。`'manual'` なら、グループのキーを書き換えた行や、上流の派生モデルが外した行も、当て直すまで元のグループに残ります。行が無くなったグループは消え、ほかの所で足された行は当て直すまで入りません。グループ化した派生モデルの `insert` で足した行は、今のキーのグループの末尾に入ります（グループが無ければ末尾に作り、グループの絞り込みを当てずに入れます）
 - 「編集が終わったら当て直す」などのきっかけは、画面の側で `refresh()` を呼んで作ります
 
 ### 利用者の state を参照する（制御）
@@ -300,7 +304,7 @@ if (model.kind === 'field') {
 - **派生モデルの `record(id)`**: 結果に含まれない行（絞り込まれた行）も指します。元の List のモデルの `record(id)` と同じオブジェクトを返すので、絞り込みの条件が変わっても、編集中のフォームは行を指し続けます。結果に含まれるかは `ids()` で確かめます
 - **絞り込み・並べ替えの関数**: 結果を作り直すたびに呼ばれます。行を書き換えず、同じ行には同じ答えを返す関数にしてください。並べ替えは安定で、同じ順位の行は元の順を保ちます
 - **検証の規則**: 同じ値には同じ結果を返す関数にしてください。変わっていない Record・行の規則の結果は、使い回します。省略できる入れ子・List が無いときは、その規則も下の規則も当てません（無いこと自体の検査は、親の Record の規則に書きます）。Field の規則は、値が `undefined` でも呼びます
-- **条件が無いとき**: 派生モデルは、絞り込み・並べ替えの条件が無ければ（外したときも）、上流の値をそのまま（同じ配列で）返します。グループ化した派生モデルは、`filterGroups`・`sortGroups` が無ければ、グループに分けただけの結果を返します。ただし、上流が無い（省略できる List が `undefined`）ときは、空の配列を返します
+- **結果の配列**: 派生モデルは、条件が無くても、上流とは別の自分の配列を返します。結果の行と順番が前と同じなら、前に返した配列を返します（条件を外しても中身が変わらなければ、購読者は呼ばれません）。条件が無ければ、中身は上流と同じ行を上流の順に並べたものです。グループ化した派生モデルは、`filterGroups`・`sortGroups` が無ければ、グループに分けただけの結果を返します。上流が無い（省略できる List が `undefined`）ときは、空の配列を返します
 - **当て直さないモードで保つ結果**: 条件・モードを差し替えたとき（`refresh()` を含む）に当て直した結果を基にして、その後は上流が変わっても保ちます。購読者がいなくても、差し替えた時点で結果を作ります
 - **グループのキー**: キーは `Map` と同じ規則（SameValueZero）で比べます。React の `key` に使うときは、キーが文字列でなければ `String(group.key)` などで文字列にしてください
 - **オプションの名前**: `data`・`defaultData`・`onDataChange` は 0.x の間に変わることがあります
@@ -492,12 +496,14 @@ createDerivedList<E, S extends ListSource<E>>(
 | `source`   | `S`                     | 上流のモデル（`ListModel` か、別の `DerivedList`） |
 | `options?` | `DerivedListOptions<E>` | 下記のオプション                                   |
 
-| オプション       | 型                       | 説明                                                                                           |
-| ---------------- | ------------------------ | ---------------------------------------------------------------------------------------------- |
-| `filter?`        | `(record: E) => boolean` | 絞り込みの条件。行を受け取り、残すなら `true` を返す                                           |
-| `sort?`          | `(a: E, b: E) => number` | 並べ替えの条件。`Array.prototype.sort` と同じ比較の関数                                        |
-| `filterRefresh?` | `RefreshMode`            | 上流が変わったときに絞り込みを当て直すか（既定は `'auto'`）。`'manual'` なら結果に入る行を保つ |
-| `sortRefresh?`   | `RefreshMode`            | 上流が変わったときに並べ替えを当て直すか（既定は `'auto'`）。`'manual'` なら並び順を保つ       |
+| オプション       | 型                  | 説明                                                                                                           |
+| ---------------- | ------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `filter?`        | `FilterFunction<E>` | 絞り込みの条件。行を受け取り、残すなら `true` を返す                                                           |
+| `sort?`          | `SortFunction<E>`   | 並べ替えの条件。`Array.prototype.sort` と同じ比較の関数                                                        |
+| `filterRefresh?` | `RefreshMode`       | 上流が変わったときに絞り込みを当て直すか（既定は `'auto'`）。`'manual'` なら当て直した時点の結果に入る行を保つ |
+| `sortRefresh?`   | `RefreshMode`       | 上流が変わったときに並べ替えを当て直すか（既定は `'auto'`）。`'manual'` なら並び順を保つ                       |
+
+`FilterFunction<E>`（`(record: E) => boolean`）と `SortFunction<E>`（`(a: E, b: E) => number`）は、[`@fringeworks/types`](https://www.npmjs.com/package/@fringeworks/types) の同じ名前の型を、このパッケージから export したものです。[`@fringeworks/list-query`](https://www.npmjs.com/package/@fringeworks/list-query) の `createFilter`・`createSort` で作った関数を、そのまま渡せます。
 
 ### `DerivedList<E, S>`
 
@@ -509,6 +515,7 @@ createDerivedList<E, S extends ListSource<E>>(
 | `ids()`                  | 結果の id の並びを読むモデル                                                                                                        |
 | `record(id)`             | 上流の id の行の Record のモデル                                                                                                    |
 | `remove(ids)`            | id の行をすべて消す（上流に取り次ぐ）                                                                                               |
+| `insert(records)`        | 元の一覧の末尾に行を足す。`filterRefresh` が `'manual'` でも、足した行を結果の末尾に入れる                                          |
 | `at(path)`               | 上流からの相対的なキーと id のパスで、下位のモデルを取り出す（上流に取り次ぐ。最初の段は行の id。空のパスなら上流の List のモデル） |
 | `setFilter(filter)`      | 絞り込みの条件を差し替える                                                                                                          |
 | `setSort(sort)`          | 並べ替えの条件を差し替える                                                                                                          |
@@ -540,11 +547,19 @@ remove(ids: readonly RecordId[]): void
 
 id の行をすべて消します。上流に取り次ぎ、ルートのモデルのデータから消えます。
 
+#### `insert`
+
+```ts
+insert(records: readonly E[]): void
+```
+
+元の一覧（派生モデルを重ねた先の、データの場所を持つ List のモデル）の末尾に行を足します。id がすでにあるもの・有効でないものは足しません。`filterRefresh` が `'manual'` のときも、足した行は条件を当てずに結果の末尾に入れます（入力画面で足した空の行が、そのまま見えます）。元の一覧の `insert` で足した行は、当て直すまで入りません。
+
 #### `setFilter` / `setSort`
 
 ```ts
-setFilter(filter: ((record: E) => boolean) | undefined): void
-setSort(sort: ((a: E, b: E) => number) | undefined): void
+setFilter(filter: FilterFunction<E> | undefined): void
+setSort(sort: SortFunction<E> | undefined): void
 ```
 
 条件を差し替え、結果が変われば購読者に知らせます。`undefined` を渡すと条件を外します（並べ替えを外すと、上流の順に戻ります）。
@@ -575,30 +590,31 @@ createGroupedList<E, K, S extends ListSource<E>>(
 | `source`  | `S`                        | 上流のモデル（`ListModel` か `DerivedList`） |
 | `options` | `GroupedListOptions<E, K>` | 下記のオプション                             |
 
-| オプション       | 型                                                   | 説明                                                                                  |
-| ---------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `groupBy`        | `GroupBy<E, K>`                                      | グループの分け方。キーの名前か、行からキーを取り出す関数                              |
-| `filterGroups?`  | `(group: ListGroup<K, E>) => boolean`                | グループの絞り込みの条件。グループを受け取り、残すなら `true` を返す                  |
-| `sortGroups?`    | `(a: ListGroup<K, E>, b: ListGroup<K, E>) => number` | グループの並べ替えの条件（既定は上流での出現順）                                      |
-| `filterRefresh?` | `RefreshMode`                                        | 上流が変わったときに、グループ分けとグループの絞り込みを当て直すか（既定は `'auto'`） |
-| `sortRefresh?`   | `RefreshMode`                                        | 上流が変わったときに、グループの並べ替えを当て直すか（既定は `'auto'`）               |
+| オプション       | 型                                | 説明                                                                                  |
+| ---------------- | --------------------------------- | ------------------------------------------------------------------------------------- |
+| `groupBy`        | `GroupBy<E, K>`                   | グループの分け方。キーの名前か、行からキーを取り出す関数                              |
+| `filterGroups?`  | `FilterFunction<ListGroup<K, E>>` | グループの絞り込みの条件。グループを受け取り、残すなら `true` を返す                  |
+| `sortGroups?`    | `SortFunction<ListGroup<K, E>>`   | グループの並べ替えの条件（既定は上流での出現順）                                      |
+| `filterRefresh?` | `RefreshMode`                     | 上流が変わったときに、グループ分けとグループの絞り込みを当て直すか（既定は `'auto'`） |
+| `sortRefresh?`   | `RefreshMode`                     | 上流が変わったときに、グループの並べ替えを当て直すか（既定は `'auto'`）               |
 
 ### `GroupedList<K, E, S>`
 
 グループ化した派生モデル。`ReadonlyModel<readonly ListGroup<K, E>[]>` のメンバーに加えて、次のものを持ちます。
 
-| メンバー                        | 説明                                                                           |
-| ------------------------------- | ------------------------------------------------------------------------------ |
-| `source`                        | つないだ上流のモデル                                                           |
-| `record(id)`                    | 上流の id の行の Record のモデル                                               |
-| `remove(ids)`                   | id の行をすべて消す（上流に取り次ぐ）                                          |
-| `at(path)`                      | 上流からの相対的なキーと id のパスで、下位のモデルを取り出す（上流に取り次ぐ） |
-| `setGroupBy(groupBy)`           | グループの分け方を差し替える                                                   |
-| `setFilterGroups(filterGroups)` | グループの絞り込みの条件を差し替える                                           |
-| `setSortGroups(sortGroups)`     | グループの並べ替えの条件を差し替える                                           |
-| `setFilterRefresh(mode)`        | グループ分けとグループの絞り込みを当て直すかを差し替える                       |
-| `setSortRefresh(mode)`          | グループの並べ替えを当て直すかを差し替える                                     |
-| `refresh()`                     | 今の条件で当て直す                                                             |
+| メンバー                        | 説明                                                                                               |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `source`                        | つないだ上流のモデル                                                                               |
+| `record(id)`                    | 上流の id の行の Record のモデル                                                                   |
+| `remove(ids)`                   | id の行をすべて消す（上流に取り次ぐ）                                                              |
+| `insert(records)`               | 元の一覧の末尾に行を足す。`filterRefresh` が `'manual'` でも、足した行を今のキーのグループに入れる |
+| `at(path)`                      | 上流からの相対的なキーと id のパスで、下位のモデルを取り出す（上流に取り次ぐ）                     |
+| `setGroupBy(groupBy)`           | グループの分け方を差し替える                                                                       |
+| `setFilterGroups(filterGroups)` | グループの絞り込みの条件を差し替える                                                               |
+| `setSortGroups(sortGroups)`     | グループの並べ替えの条件を差し替える                                                               |
+| `setFilterRefresh(mode)`        | グループ分けとグループの絞り込みを当て直すかを差し替える                                           |
+| `setSortRefresh(mode)`          | グループの並べ替えを当て直すかを差し替える                                                         |
+| `refresh()`                     | 今の条件で当て直す                                                                                 |
 
 `record`・`remove` は `DerivedList` と同じです。`setFilterGroups`・`setSortGroups` に `undefined` を渡すと条件を外します（並べ替えを外すと、上流での出現順に戻ります）。
 
@@ -726,45 +742,47 @@ setIssuesAt(
 
 ### 型
 
-| 型                          | 説明                                                         |
-| --------------------------- | ------------------------------------------------------------ |
-| `FieldModel<V>`             | Field のモデル                                               |
-| `RecordModel<T>`            | Record のモデル                                              |
-| `ListModel<E>`              | List のモデル                                                |
-| `ReadonlyModel<V>`          | 読んで購読できるもの                                         |
-| `ModelRoot<D>`              | ルートのモデルだけが持つもの                                 |
-| `ModelReceiveOptions`       | `receive` のオプション                                       |
-| `UnknownModel`              | `at()` が返すモデル（`kind` で絞り込む）                     |
-| `ModelChangeEvent<V>`       | listener に渡すもの（`{ value, previousValue }`）            |
-| `ModelListener<V>`          | listener                                                     |
-| `ModelPath`                 | キーと id のパス（`readonly string[]`）                      |
-| `RecordId`                  | id として渡せる値（`string \| number`）                      |
-| `FieldDefinition<V>`        | Field の定義                                                 |
-| `RecordDefinition<T>`       | Record の定義                                                |
-| `ListDefinition<E>`         | List の定義                                                  |
-| `DefinitionOf<V>`           | 値の型に合う定義（Field・Record・List のどれか）             |
-| `FieldKeys<T>`              | `field()` に渡せるキー                                       |
-| `RecordKeys<T>`             | `record()` に渡せるキー                                      |
-| `ListKeys<T>`               | `list()` に渡せるキー                                        |
-| `RecordModelOptions<T>`     | `createRecordModel` のオプション                             |
-| `ListModelOptions<E>`       | `createListModel` のオプション                               |
-| `FieldModelOptions<V>`      | `createFieldModel` のオプション                              |
-| `DerivedList<E, S>`         | 標準の派生モデル                                             |
-| `DerivedListOptions<E>`     | `createDerivedList` のオプション                             |
-| `ListSource<E>`             | 派生モデルの上流になれる一覧（`ListModel`・`DerivedList`）   |
-| `RefreshMode`               | 派生モデルが上流の変化で当て直すか（`'auto'`・`'manual'`）   |
-| `ListSelection<E, S>`       | 一覧の選択のモデル                                           |
-| `ListSelectionOptions`      | `createListSelection` のオプション                           |
-| `ModelStatus<M>`            | 状態のモデル（変更済みか）                                   |
-| `ModelStatusSource`         | 状態のモデルにつなげるモデル（Record・List のモデル）        |
-| `ModelValidation<M>`        | 検証のモデル                                                 |
-| `ModelValidationOptions<V>` | `createModelValidation` のオプション                         |
-| `ModelValidationSource`     | 検証のモデルにつなげるモデル（Field・Record・List のモデル） |
-| `SetIssuesOptions`          | `setIssues`・`setIssuesAt` のオプション                      |
-| `ValidationIssue`           | 検証の結果の1つ（`{ message }`。足したプロパティは保つ）     |
-| `ValidationIssueInput`      | 規則が返す・外から入れる結果（`ValidationIssue` と `path?`） |
-| `ValidationResult`          | 規則が返すもの（文字列・結果の配列・`undefined`）            |
-| `GroupedList<K, E, S>`      | グループ化した派生モデル                                     |
-| `GroupedListOptions<E, K>`  | `createGroupedList` のオプション                             |
-| `ListGroup<K, E>`           | グループ化した派生モデルの、1つのグループ                    |
-| `GroupBy<E, K>`             | グループの分け方（キーの名前か、行からキーを取り出す関数）   |
+| 型                          | 説明                                                                                                            |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `FieldModel<V>`             | Field のモデル                                                                                                  |
+| `RecordModel<T>`            | Record のモデル                                                                                                 |
+| `ListModel<E>`              | List のモデル                                                                                                   |
+| `ReadonlyModel<V>`          | 読んで購読できるもの                                                                                            |
+| `ModelRoot<D>`              | ルートのモデルだけが持つもの                                                                                    |
+| `ModelReceiveOptions`       | `receive` のオプション                                                                                          |
+| `UnknownModel`              | `at()` が返すモデル（`kind` で絞り込む）                                                                        |
+| `ModelChangeEvent<V>`       | listener に渡すもの（`{ value, previousValue }`）                                                               |
+| `ModelListener<V>`          | listener                                                                                                        |
+| `ModelPath`                 | キーと id のパス（`readonly string[]`）                                                                         |
+| `RecordId`                  | id として渡せる値（`string \| number`）                                                                         |
+| `FieldDefinition<V>`        | Field の定義                                                                                                    |
+| `RecordDefinition<T>`       | Record の定義                                                                                                   |
+| `ListDefinition<E>`         | List の定義                                                                                                     |
+| `DefinitionOf<V>`           | 値の型に合う定義（Field・Record・List のどれか）                                                                |
+| `FieldKeys<T>`              | `field()` に渡せるキー                                                                                          |
+| `RecordKeys<T>`             | `record()` に渡せるキー                                                                                         |
+| `ListKeys<T>`               | `list()` に渡せるキー                                                                                           |
+| `RecordModelOptions<T>`     | `createRecordModel` のオプション                                                                                |
+| `ListModelOptions<E>`       | `createListModel` のオプション                                                                                  |
+| `FieldModelOptions<V>`      | `createFieldModel` のオプション                                                                                 |
+| `DerivedList<E, S>`         | 標準の派生モデル                                                                                                |
+| `DerivedListOptions<E>`     | `createDerivedList` のオプション                                                                                |
+| `FilterFunction<T>`         | 要素が条件に合うかを判定する関数 `(value: T) => boolean`（`filter`・`filterGroups`。`@fringeworks/types` の型） |
+| `SortFunction<T>`           | 2つの要素の順序を返す比較の関数 `(a: T, b: T) => number`（`sort`・`sortGroups`。`@fringeworks/types` の型）     |
+| `ListSource<E>`             | 派生モデルの上流になれる一覧（`ListModel`・`DerivedList`）                                                      |
+| `RefreshMode`               | 派生モデルが上流の変化で当て直すか（`'auto'`・`'manual'`）                                                      |
+| `ListSelection<E, S>`       | 一覧の選択のモデル                                                                                              |
+| `ListSelectionOptions`      | `createListSelection` のオプション                                                                              |
+| `ModelStatus<M>`            | 状態のモデル（変更済みか）                                                                                      |
+| `ModelStatusSource`         | 状態のモデルにつなげるモデル（Record・List のモデル）                                                           |
+| `ModelValidation<M>`        | 検証のモデル                                                                                                    |
+| `ModelValidationOptions<V>` | `createModelValidation` のオプション                                                                            |
+| `ModelValidationSource`     | 検証のモデルにつなげるモデル（Field・Record・List のモデル）                                                    |
+| `SetIssuesOptions`          | `setIssues`・`setIssuesAt` のオプション                                                                         |
+| `ValidationIssue`           | 検証の結果の1つ（`{ message }`。足したプロパティは保つ）                                                        |
+| `ValidationIssueInput`      | 規則が返す・外から入れる結果（`ValidationIssue` と `path?`）                                                    |
+| `ValidationResult`          | 規則が返すもの（文字列・結果の配列・`undefined`）                                                               |
+| `GroupedList<K, E, S>`      | グループ化した派生モデル                                                                                        |
+| `GroupedListOptions<E, K>`  | `createGroupedList` のオプション                                                                                |
+| `ListGroup<K, E>`           | グループ化した派生モデルの、1つのグループ                                                                       |
+| `GroupBy<E, K>`             | グループの分け方（キーの名前か、行からキーを取り出す関数）                                                      |

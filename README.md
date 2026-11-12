@@ -186,7 +186,7 @@ status.dirty(['lines', 'L-3']).get(); // Whether line L-3 is dirty
 status.markClean(); // Makes the current data the baseline, e.g. after saving
 ```
 
-- The data at creation is the baseline, and each path's current value is compared with it. The same reference counts as the same; otherwise plain objects and arrays are compared by content (other values with `Object.is`). Reverting a field to its original value also makes the record and the whole form clean again. Unchanged parts keep the same references, so only changed branches are compared
+- The data at creation is the baseline, and each path's current value is compared with it. The same reference counts as the same; otherwise plain objects and arrays are compared by content, and `Date` objects by time (other values with `Object.is`). Reverting a field to its original value also makes the record and the whole form clean again. Unchanged parts keep the same references, so only changed branches are compared
 - `dirty(path)` returns a model that reads a boolean, and the same path returns the same object. Subscribers are notified only when the value changes
 - When controlled, call `markClean()` to reset the baseline after reloading data following a save
 
@@ -237,7 +237,7 @@ validation.invalid().get(); // Whether the form has issues anywhere (whether it 
 
 ### Not reapplying on edits (input screens)
 
-A derived model reapplies filtering and sorting as soon as its source changes. On an input screen, a record disappears the moment you enter a value that no longer matches the filter, and jumps the moment you edit its sort key. With `filterRefresh` and `sortRefresh` set to `'manual'`, the model does not reapply when the source changes, and reapplies when you call `refresh()` or replace a condition.
+A derived model reapplies filtering and sorting as soon as its source changes. On an input screen, a record disappears the moment you enter a value that no longer matches the filter, and jumps the moment you edit its sort key. With `filterRefresh` and `sortRefresh` set to `'manual'`, the model keeps the records and the order from the last time it reapplied, even when the source changes, and reapplies when you call `refresh()` or replace a condition.
 
 ```ts
 const visible = createDerivedList(order.list('lines'), {
@@ -250,15 +250,19 @@ const visible = createDerivedList(order.list('lines'), {
 visible.refresh(); // Reapplies the current conditions
 ```
 
-| Change in the source                                        | Behavior when not reapplying                                                                          |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| A record's content changed (edited)                         | Keeps which records are in the result and their order, with the new content                           |
-| A record was removed                                        | It is removed from the result too                                                                     |
-| A record was added                                          | Appended at the end without the conditions (an added empty record is visible instead of filtered out) |
-| A condition or mode was replaced, or `refresh()` was called | Reapplies                                                                                             |
+| Change in the source                                                        | Behavior when not reapplying                                                                                                      |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| A record's content changed (edited)                                         | Keeps which records are in the result and their order, with the new content                                                       |
+| An upstream derived model filtered out or reordered records                 | Keeps them (records filtered out upstream stay, with the new content)                                                             |
+| A record was removed (from the original list)                               | It is removed from the result too                                                                                                 |
+| A record was added with this derived model's `insert`                       | Appended at the end without the conditions (an added empty record stays visible instead of filtered out, so you can start typing) |
+| A record was added elsewhere, or started matching an upstream derived model | Not included until reapplied                                                                                                      |
+| A condition or mode was replaced, or `refresh()` was called                 | Reapplies                                                                                                                         |
 
-- Filtering and sorting are chosen separately. To remove completed items immediately but not move items whose priority is edited, set only `sortRefresh` to `'manual'`
-- Grouped derived models have the same options. `filterRefresh` covers grouping (`groupBy`) and group filtering, and `sortRefresh` covers group sorting. With `'manual'`, a record whose group key is changed stays in its group until reapplied. A group with no records left disappears
+- Filtering and sorting are chosen separately. To remove completed items immediately but not move items whose priority is edited, set only `sortRefresh` to `'manual'` (which records are included then follows the source, so records filtered out by an upstream derived model disappear)
+- When derived models are stacked (for example, a list the user filters on top of a list the system filters), setting only the derived model shown on the screen to `'manual'` also protects its result from changes in upstream derived models. To reapply, call `refresh()` on that derived model (it reapplies against the current result of the upstream derived model)
+- Even without conditions, `'manual'` keeps the result (removing all the user's conditions does not drop the protection)
+- Grouped derived models have the same options. `filterRefresh` covers grouping (`groupBy`) and group filtering, and `sortRefresh` covers group sorting. With `'manual'`, a record whose group key is changed, or that an upstream derived model filtered out, stays in its group until reapplied. A group with no records left disappears, and records added elsewhere are not included until reapplied. Records added with the grouped derived model's `insert` are put at the end of the group of their current key (a missing group is created at the end, without group filtering)
 - Triggers such as "reapply when editing ends" are made on the UI side by calling `refresh()`
 
 ### Referring to your state (controlled)
@@ -302,7 +306,7 @@ if (model.kind === 'field') {
 - **`record(id)` of a derived model**: it also points to records not in the result (filtered out). It returns the same object as `record(id)` of the original List model, so a form being edited keeps pointing to its record even if the filter changes. Use `ids()` to check whether a record is in the result
 - **Filter and sort functions**: they are called every time the result is rebuilt. Do not change records in them, and return the same answer for the same records. Sorting is stable, and records that compare equal keep the original order
 - **Validation rules**: return the same issues for the same value. The issues of rules for unchanged records are reused. When an optional nested record or List is missing, neither its rule nor the rules under it are applied (check that it is missing in the rule of the parent Record). Field rules are called even when the value is `undefined`
-- **Without conditions**: when a derived model has no filter or sort condition (including after removing them), it returns the source value as is (the same array). A grouped derived model without `filterGroups` and `sortGroups` returns the result of grouping only. However, when the source is missing (an optional List that is `undefined`), it returns an empty array
+- **The result array**: a derived model returns its own array, separate from the source, even without conditions. When the records and their order are the same as before, it returns the previous array (removing a condition without changing the content does not call subscribers). Without conditions, the content is the source's records in the source's order. A grouped derived model without `filterGroups` and `sortGroups` returns the result of grouping only. When the source is missing (an optional List that is `undefined`), it returns an empty array
 - **The result kept when not reapplying**: the result is reapplied when a condition or mode is replaced (including `refresh()`) and kept from then on as the source changes. The result is built at the time of the replacement, even without subscribers
 - **Group keys**: keys are compared by the same rule as `Map` (SameValueZero). When you use a key as a React `key`, convert it to a string with `String(group.key)` or similar if it is not a string
 - **Option names**: `data`, `defaultData`, and `onDataChange` may change during 0.x
@@ -494,12 +498,14 @@ Creates a derived model that filters and sorts a list model.
 | `source`   | `S`                     | The source model (a `ListModel` or another `DerivedList`) |
 | `options?` | `DerivedListOptions<E>` | Options below                                             |
 
-| Option           | Type                     | Description                                                                                                                    |
-| ---------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `filter?`        | `(record: E) => boolean` | The filter. Receives a record and returns `true` to keep it                                                                    |
-| `sort?`          | `(a: E, b: E) => number` | The sort order. A compare function, as in `Array.prototype.sort`                                                               |
-| `filterRefresh?` | `RefreshMode`            | Whether to reapply the filter when the source changes (defaults to `'auto'`). `'manual'` keeps which records are in the result |
-| `sortRefresh?`   | `RefreshMode`            | Whether to reapply the sort order when the source changes (defaults to `'auto'`). `'manual'` keeps the order                   |
+| Option           | Type                | Description                                                                                                                                         |
+| ---------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `filter?`        | `FilterFunction<E>` | The filter. Receives a record and returns `true` to keep it                                                                                         |
+| `sort?`          | `SortFunction<E>`   | The sort order. A compare function, as in `Array.prototype.sort`                                                                                    |
+| `filterRefresh?` | `RefreshMode`       | Whether to reapply the filter when the source changes (defaults to `'auto'`). `'manual'` keeps which records were in the result when last reapplied |
+| `sortRefresh?`   | `RefreshMode`       | Whether to reapply the sort order when the source changes (defaults to `'auto'`). `'manual'` keeps the order                                        |
+
+`FilterFunction<E>` (`(record: E) => boolean`) and `SortFunction<E>` (`(a: E, b: E) => number`) are the types of the same names from [`@fringeworks/types`](https://www.npmjs.com/package/@fringeworks/types), exported from this package as well. Functions made with `createFilter` and `createSort` of [`@fringeworks/list-query`](https://www.npmjs.com/package/@fringeworks/list-query) can be passed as they are.
 
 ### `DerivedList<E, S>`
 
@@ -511,6 +517,7 @@ The standard derived model. In addition to the members of `ReadonlyModel<readonl
 | `ids()`                  | Model that reads the order of ids in the result                                                                                                             |
 | `record(id)`             | Model of the source's record with the id                                                                                                                    |
 | `remove(ids)`            | Removes all records with the ids (passed to the source)                                                                                                     |
+| `insert(records)`        | Appends records to the original list. Added records are put at the end of the result even when `filterRefresh` is `'manual'`                                |
 | `at(path)`               | Takes out a child model by a path relative to the source (passed to the source; the first step is a record id; an empty path returns the source List model) |
 | `setFilter(filter)`      | Replaces the filter                                                                                                                                         |
 | `setSort(sort)`          | Replaces the sort order                                                                                                                                     |
@@ -542,11 +549,19 @@ remove(ids: readonly RecordId[]): void
 
 Removes all records with the ids. The call is passed to the source, and the records are removed from the root model's data.
 
+#### `insert`
+
+```ts
+insert(records: readonly E[]): void
+```
+
+Appends records to the end of the original list (the List model that holds the data, below the stacked derived models). Records whose id already exists or is not valid are not added. Even when `filterRefresh` is `'manual'`, the added records are put at the end of the result without the conditions (an empty record added on an input screen stays visible). Records added with the original list's `insert` are not included until reapplied.
+
 #### `setFilter` / `setSort`
 
 ```ts
-setFilter(filter: ((record: E) => boolean) | undefined): void
-setSort(sort: ((a: E, b: E) => number) | undefined): void
+setFilter(filter: FilterFunction<E> | undefined): void
+setSort(sort: SortFunction<E> | undefined): void
 ```
 
 Replaces a condition and notifies subscribers if the result changes. Passing `undefined` removes the condition (removing the sort order returns to the source's order).
@@ -577,30 +592,31 @@ Creates a derived model that groups a list model. When `groupBy` is a key name, 
 | `source`  | `S`                        | The source model (a `ListModel` or `DerivedList`) |
 | `options` | `GroupedListOptions<E, K>` | Options below                                     |
 
-| Option           | Type                                                 | Description                                                                                    |
-| ---------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `groupBy`        | `GroupBy<E, K>`                                      | How to group. A key name, or a function that extracts the key from a record                    |
-| `filterGroups?`  | `(group: ListGroup<K, E>) => boolean`                | The group filter. Receives a group and returns `true` to keep it                               |
-| `sortGroups?`    | `(a: ListGroup<K, E>, b: ListGroup<K, E>) => number` | The group sort order (defaults to the order of first appearance in the source)                 |
-| `filterRefresh?` | `RefreshMode`                                        | Whether to reapply grouping and group filtering when the source changes (defaults to `'auto'`) |
-| `sortRefresh?`   | `RefreshMode`                                        | Whether to reapply group sorting when the source changes (defaults to `'auto'`)                |
+| Option           | Type                              | Description                                                                                    |
+| ---------------- | --------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `groupBy`        | `GroupBy<E, K>`                   | How to group. A key name, or a function that extracts the key from a record                    |
+| `filterGroups?`  | `FilterFunction<ListGroup<K, E>>` | The group filter. Receives a group and returns `true` to keep it                               |
+| `sortGroups?`    | `SortFunction<ListGroup<K, E>>`   | The group sort order (defaults to the order of first appearance in the source)                 |
+| `filterRefresh?` | `RefreshMode`                     | Whether to reapply grouping and group filtering when the source changes (defaults to `'auto'`) |
+| `sortRefresh?`   | `RefreshMode`                     | Whether to reapply group sorting when the source changes (defaults to `'auto'`)                |
 
 ### `GroupedList<K, E, S>`
 
 The grouped derived model. In addition to the members of `ReadonlyModel<readonly ListGroup<K, E>[]>`, it has the following.
 
-| Member                          | Description                                                                     |
-| ------------------------------- | ------------------------------------------------------------------------------- |
-| `source`                        | The connected source model                                                      |
-| `record(id)`                    | Model of the source's record with the id                                        |
-| `remove(ids)`                   | Removes all records with the ids (passed to the source)                         |
-| `at(path)`                      | Takes out a child model by a path relative to the source (passed to the source) |
-| `setGroupBy(groupBy)`           | Replaces how to group                                                           |
-| `setFilterGroups(filterGroups)` | Replaces the group filter                                                       |
-| `setSortGroups(sortGroups)`     | Replaces the group sort order                                                   |
-| `setFilterRefresh(mode)`        | Replaces whether to reapply grouping and group filtering                        |
-| `setSortRefresh(mode)`          | Replaces whether to reapply group sorting                                       |
-| `refresh()`                     | Reapplies the current conditions                                                |
+| Member                          | Description                                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `source`                        | The connected source model                                                                                                            |
+| `record(id)`                    | Model of the source's record with the id                                                                                              |
+| `remove(ids)`                   | Removes all records with the ids (passed to the source)                                                                               |
+| `insert(records)`               | Appends records to the original list. Added records are put in the group of their current key even when `filterRefresh` is `'manual'` |
+| `at(path)`                      | Takes out a child model by a path relative to the source (passed to the source)                                                       |
+| `setGroupBy(groupBy)`           | Replaces how to group                                                                                                                 |
+| `setFilterGroups(filterGroups)` | Replaces the group filter                                                                                                             |
+| `setSortGroups(sortGroups)`     | Replaces the group sort order                                                                                                         |
+| `setFilterRefresh(mode)`        | Replaces whether to reapply grouping and group filtering                                                                              |
+| `setSortRefresh(mode)`          | Replaces whether to reapply group sorting                                                                                             |
+| `refresh()`                     | Reapplies the current conditions                                                                                                      |
 
 `record` and `remove` are the same as in `DerivedList`. Passing `undefined` to `setFilterGroups` or `setSortGroups` removes the condition (removing the sort order returns to the order of first appearance in the source).
 
@@ -728,45 +744,47 @@ Definitions are plain objects, so they can be created from JSON (unless `id` or 
 
 ### Types
 
-| Type                        | Description                                                                     |
-| --------------------------- | ------------------------------------------------------------------------------- |
-| `FieldModel<V>`             | Model of a Field                                                                |
-| `RecordModel<T>`            | Model of a Record                                                               |
-| `ListModel<E>`              | Model of a List                                                                 |
-| `ReadonlyModel<V>`          | Something you can read and subscribe to                                         |
-| `ModelRoot<D>`              | Members only the root model has                                                 |
-| `ModelReceiveOptions`       | Options of `receive`                                                            |
-| `UnknownModel`              | Model returned by `at()` (narrow it with `kind`)                                |
-| `ModelChangeEvent<V>`       | What a listener receives (`{ value, previousValue }`)                           |
-| `ModelListener<V>`          | A listener                                                                      |
-| `ModelPath`                 | A path of keys and ids (`readonly string[]`)                                    |
-| `RecordId`                  | A value accepted as an id (`string \| number`)                                  |
-| `FieldDefinition<V>`        | Definition of a Field                                                           |
-| `RecordDefinition<T>`       | Definition of a Record                                                          |
-| `ListDefinition<E>`         | Definition of a List                                                            |
-| `DefinitionOf<V>`           | Definition that matches the type of a value (Field, Record, or List)            |
-| `FieldKeys<T>`              | Keys accepted by `field()`                                                      |
-| `RecordKeys<T>`             | Keys accepted by `record()`                                                     |
-| `ListKeys<T>`               | Keys accepted by `list()`                                                       |
-| `RecordModelOptions<T>`     | Options of `createRecordModel`                                                  |
-| `ListModelOptions<E>`       | Options of `createListModel`                                                    |
-| `FieldModelOptions<V>`      | Options of `createFieldModel`                                                   |
-| `DerivedList<E, S>`         | The standard derived model                                                      |
-| `DerivedListOptions<E>`     | Options of `createDerivedList`                                                  |
-| `ListSource<E>`             | A list that can be the source of a derived model (`ListModel`, `DerivedList`)   |
-| `RefreshMode`               | Whether a derived model reapplies on source changes (`'auto'`, `'manual'`)      |
-| `ListSelection<E, S>`       | A selection model for a list                                                    |
-| `ListSelectionOptions`      | Options of `createListSelection`                                                |
-| `ModelStatus<M>`            | A status model (dirty)                                                          |
-| `ModelStatusSource`         | A model a status model can connect to (a Record or List model)                  |
-| `ModelValidation<M>`        | A validation model                                                              |
-| `ModelValidationOptions<V>` | Options of `createModelValidation`                                              |
-| `ModelValidationSource`     | A model a validation model can connect to (a Field, Record, or List model)      |
-| `SetIssuesOptions`          | Options of `setIssues` and `setIssuesAt`                                        |
-| `ValidationIssue`           | One validation issue (`{ message }`; added properties are kept)                 |
-| `ValidationIssueInput`      | An issue returned by a rule or set from outside (`ValidationIssue` and `path?`) |
-| `ValidationResult`          | What a rule returns (a string, an array of issues, or `undefined`)              |
-| `GroupedList<K, E, S>`      | The grouped derived model                                                       |
-| `GroupedListOptions<E, K>`  | Options of `createGroupedList`                                                  |
-| `ListGroup<K, E>`           | A group of the grouped derived model                                            |
-| `GroupBy<E, K>`             | How to group (a key name, or a function that extracts the key from a record)    |
+| Type                        | Description                                                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `FieldModel<V>`             | Model of a Field                                                                                                                           |
+| `RecordModel<T>`            | Model of a Record                                                                                                                          |
+| `ListModel<E>`              | Model of a List                                                                                                                            |
+| `ReadonlyModel<V>`          | Something you can read and subscribe to                                                                                                    |
+| `ModelRoot<D>`              | Members only the root model has                                                                                                            |
+| `ModelReceiveOptions`       | Options of `receive`                                                                                                                       |
+| `UnknownModel`              | Model returned by `at()` (narrow it with `kind`)                                                                                           |
+| `ModelChangeEvent<V>`       | What a listener receives (`{ value, previousValue }`)                                                                                      |
+| `ModelListener<V>`          | A listener                                                                                                                                 |
+| `ModelPath`                 | A path of keys and ids (`readonly string[]`)                                                                                               |
+| `RecordId`                  | A value accepted as an id (`string \| number`)                                                                                             |
+| `FieldDefinition<V>`        | Definition of a Field                                                                                                                      |
+| `RecordDefinition<T>`       | Definition of a Record                                                                                                                     |
+| `ListDefinition<E>`         | Definition of a List                                                                                                                       |
+| `DefinitionOf<V>`           | Definition that matches the type of a value (Field, Record, or List)                                                                       |
+| `FieldKeys<T>`              | Keys accepted by `field()`                                                                                                                 |
+| `RecordKeys<T>`             | Keys accepted by `record()`                                                                                                                |
+| `ListKeys<T>`               | Keys accepted by `list()`                                                                                                                  |
+| `RecordModelOptions<T>`     | Options of `createRecordModel`                                                                                                             |
+| `ListModelOptions<E>`       | Options of `createListModel`                                                                                                               |
+| `FieldModelOptions<V>`      | Options of `createFieldModel`                                                                                                              |
+| `DerivedList<E, S>`         | The standard derived model                                                                                                                 |
+| `DerivedListOptions<E>`     | Options of `createDerivedList`                                                                                                             |
+| `FilterFunction<T>`         | A function that tells whether an item matches, `(value: T) => boolean` (`filter` and `filterGroups`; a type of `@fringeworks/types`)       |
+| `SortFunction<T>`           | A compare function that returns the order of two items, `(a: T, b: T) => number` (`sort` and `sortGroups`; a type of `@fringeworks/types`) |
+| `ListSource<E>`             | A list that can be the source of a derived model (`ListModel`, `DerivedList`)                                                              |
+| `RefreshMode`               | Whether a derived model reapplies on source changes (`'auto'`, `'manual'`)                                                                 |
+| `ListSelection<E, S>`       | A selection model for a list                                                                                                               |
+| `ListSelectionOptions`      | Options of `createListSelection`                                                                                                           |
+| `ModelStatus<M>`            | A status model (dirty)                                                                                                                     |
+| `ModelStatusSource`         | A model a status model can connect to (a Record or List model)                                                                             |
+| `ModelValidation<M>`        | A validation model                                                                                                                         |
+| `ModelValidationOptions<V>` | Options of `createModelValidation`                                                                                                         |
+| `ModelValidationSource`     | A model a validation model can connect to (a Field, Record, or List model)                                                                 |
+| `SetIssuesOptions`          | Options of `setIssues` and `setIssuesAt`                                                                                                   |
+| `ValidationIssue`           | One validation issue (`{ message }`; added properties are kept)                                                                            |
+| `ValidationIssueInput`      | An issue returned by a rule or set from outside (`ValidationIssue` and `path?`)                                                            |
+| `ValidationResult`          | What a rule returns (a string, an array of issues, or `undefined`)                                                                         |
+| `GroupedList<K, E, S>`      | The grouped derived model                                                                                                                  |
+| `GroupedListOptions<E, K>`  | Options of `createGroupedList`                                                                                                             |
+| `ListGroup<K, E>`           | A group of the grouped derived model                                                                                                       |
+| `GroupBy<E, K>`             | How to group (a key name, or a function that extracts the key from a record)                                                               |

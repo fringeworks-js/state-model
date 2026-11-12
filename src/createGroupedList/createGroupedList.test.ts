@@ -69,7 +69,7 @@ describe('createGroupedList', () => {
       expect(grouped.get()).toBe(next);
     });
 
-    it('グループの条件を外すと、グループに分けただけの結果をそのまま返す', () => {
+    it('グループの条件を外すと、グループに分けただけの結果になる。中身が前と同じなら前の配列のまま', () => {
       const items = createItems();
       const plain = createGroupedList(items, { groupBy: 'category' }).get();
       const grouped = createGroupedList(items, {
@@ -81,13 +81,11 @@ describe('createGroupedList', () => {
       grouped.setFilterGroups(undefined);
       grouped.setSortGroups(undefined);
       const all = grouped.get();
-      // 中身はグループに分けただけの結果と同じで、絞り込み・並べ替えた配列とは別の配列
-      expect(all).not.toBe(arranged);
+      // 中身はグループに分けただけの結果と同じ。何も除かず並びも変わらないので、前の配列のまま
       expect(all.map((group) => group.ids)).toEqual(
         plain.map((group) => group.ids),
       );
-      // グループのオブジェクトは使い回す
-      expect(all[0]).toBe(arranged[0]);
+      expect(all).toBe(arranged);
     });
 
     it('グループの絞り込みで消えて戻ったグループも、中身が同じなら同じオブジェクト', () => {
@@ -227,7 +225,7 @@ describe('createGroupedList', () => {
       ]);
     });
 
-    it('行が無くなったグループは消え、足された行は今のキーのグループに入る', () => {
+    it('行が無くなったグループは消え、足された行は当て直すまで入らない', () => {
       const items = createItems();
       const grouped = createGroupedList(items, {
         groupBy: 'category',
@@ -241,10 +239,96 @@ describe('createGroupedList', () => {
         { id: 'I-8', category: 'C-2', price: 1 },
       ]);
       expect(pairs(grouped.get())).toEqual([
+        ['C-2', ['I-2', 'I-5']],
+        ['C-3', ['I-3', 'I-6']],
+      ]);
+      grouped.refresh();
+      expect(pairs(grouped.get())).toEqual([
         ['C-2', ['I-2', 'I-5', 'I-8']],
         ['C-3', ['I-3', 'I-6']],
         ['C-9', ['I-7']],
       ]);
+    });
+
+    it('上流の段が外した行も、元のグループの元の位置に残る。refresh() で外れる', () => {
+      const items = createItems();
+      const visible = createDerivedList(items, {
+        filter: (item) => item.price >= 200,
+      });
+      const grouped = createGroupedList(visible, {
+        groupBy: 'category',
+        filterRefresh: 'manual',
+      });
+      expect(pairs(grouped.get())).toEqual([
+        ['C-2', ['I-2', 'I-5']],
+        ['C-3', ['I-3', 'I-6']],
+        ['C-1', ['I-4']],
+      ]);
+      items.record('I-2').field('price').set(1);
+      expect(pairs(grouped.get())).toEqual([
+        ['C-2', ['I-2', 'I-5']],
+        ['C-3', ['I-3', 'I-6']],
+        ['C-1', ['I-4']],
+      ]);
+      expect(grouped.get()[0]!.records[0]!.price).toBe(1);
+      grouped.refresh();
+      expect(pairs(grouped.get())).toEqual([
+        ['C-3', ['I-3', 'I-6']],
+        ['C-1', ['I-4']],
+        ['C-2', ['I-5']],
+      ]);
+    });
+
+    it('insert で足した行は、今のキーのグループに入る。グループが無ければ末尾に作る', () => {
+      const items = createItems();
+      const grouped = createGroupedList(items, {
+        groupBy: 'category',
+        filterRefresh: 'manual',
+      });
+      grouped.get();
+      grouped.insert([
+        { id: 'I-7', category: 'C-9', price: 1 },
+        { id: 'I-8', category: 'C-2', price: 1 },
+      ]);
+      expect(items.ids().get()).toContain('I-7');
+      expect(pairs(grouped.get())).toEqual([
+        ['C-1', ['I-1', 'I-4']],
+        ['C-2', ['I-2', 'I-5', 'I-8']],
+        ['C-3', ['I-3', 'I-6']],
+        ['C-9', ['I-7']],
+      ]);
+      // 足した後は、ほかの行と同じく保つ
+      items.record('I-8').field('category').set('C-3');
+      expect(pairs(grouped.get())[1]).toEqual(['C-2', ['I-2', 'I-5', 'I-8']]);
+    });
+
+    it('insert で足した行は、グループの絞り込みや上流の段の条件に合わなくても入る。refresh() で当てる', () => {
+      const items = createItems();
+      const visible = createDerivedList(items, {
+        filter: (item) => item.price >= 100,
+      });
+      const grouped = createGroupedList(visible, {
+        groupBy: 'category',
+        filterGroups: (group) => group.records.length >= 2,
+        filterRefresh: 'manual',
+        sortRefresh: 'manual',
+      });
+      grouped.get();
+      grouped.insert([{ id: 'I-7', category: 'C-9', price: 0 }]);
+      expect(keys(grouped.get())).toEqual(['C-1', 'C-2', 'C-3', 'C-9']);
+      grouped.refresh();
+      expect(keys(grouped.get())).toEqual(['C-1', 'C-2', 'C-3']);
+    });
+
+    it('insert で、すでにある id の行を足そうとしても、グループに入れない', () => {
+      const items = createItems();
+      const grouped = createGroupedList(items, {
+        groupBy: 'category',
+        filterRefresh: 'manual',
+      });
+      grouped.get();
+      grouped.insert([{ id: 'I-1', category: 'C-9', price: 1 }]);
+      expect(keys(grouped.get())).toEqual(['C-1', 'C-2', 'C-3']);
     });
 
     it('グループの絞り込みを当て直さない: 条件から外れたグループも残る', () => {

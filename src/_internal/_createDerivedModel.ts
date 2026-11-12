@@ -1,5 +1,12 @@
-import type { ReadonlyModel } from '../types';
 import _createNotifier, { type NotifierSubscribe } from './_createNotifier';
+
+/**
+ * 派生モデルの上流（値を読めて、変わったら知らせるもの）
+ */
+export type DerivedSource<I> = {
+  get(): I;
+  subscribe(listener: () => void): () => void;
+};
 
 /**
  * 前に結果を作ったときの、上流の値・状態・結果
@@ -34,7 +41,7 @@ export type DerivedCompute<I, S, O> = (
  * @param compute 上流の値と状態から結果を作る純粋な関数
  */
 export default function _createDerivedModel<I, S, O>(
-  source: ReadonlyModel<I>,
+  source: DerivedSource<I>,
   initialState: S,
   compute: DerivedCompute<I, S, O>,
 ) {

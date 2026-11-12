@@ -6,6 +6,7 @@ import {
 } from '../_internal/_fixtures';
 import createRecordModel from '../createRecordModel';
 import createDerivedList from './createDerivedList';
+import type { DerivedListOptions } from './types';
 
 const byPrice = (a: Line, b: Line) => a.price - b.price;
 const byPriceDesc = (a: Line, b: Line) => b.price - a.price;
@@ -32,22 +33,27 @@ describe('createDerivedList', () => {
       expect(lines.get()).toBe(before);
     });
 
-    it('条件が無ければ、上流の配列をそのまま返す', () => {
+    it('条件が無ければ、上流と同じ行を上流の順に返す。配列は上流とは別のもの', () => {
       const { lines } = setup();
-      expect(createDerivedList(lines).get()).toBe(lines.get());
+      const derived = createDerivedList(lines);
+      expect(derived.get()).toEqual(lines.get());
+      expect(derived.get()).not.toBe(lines.get());
     });
 
-    it('条件を外すと、上流の配列をそのまま返す（前の結果と中身が同じでも、上流の配列を優先する）', () => {
+    it('条件を外したとき、結果の行と順番が前と同じなら前の配列のまま', () => {
       const { lines } = setup();
       // 何も除外しない絞り込み
       const derived = createDerivedList(lines, { filter: () => true });
       const filtered = derived.get();
-      expect(filtered).not.toBe(lines.get());
+      const listener = vi.fn();
+      derived.subscribe(listener);
       derived.setFilter(undefined);
-      expect(derived.get()).toBe(lines.get());
-      // 上流が変わった後も、上流の配列のまま
+      expect(derived.get()).toBe(filtered);
+      expect(listener).not.toHaveBeenCalled();
+      // 上流が変わると作り直す（上流の配列にはならない）
       lines.record('L-1').field('price').set(1);
-      expect(derived.get()).toBe(lines.get());
+      expect(derived.get()).toEqual(lines.get());
+      expect(derived.get()).not.toBe(lines.get());
     });
 
     it('上流が無い（省略できる List）ときは空の配列', () => {
@@ -187,6 +193,19 @@ describe('createDerivedList', () => {
       expect(derived.ids().get()).toContain('L-1');
     });
 
+    it('insert は元の一覧に取り次ぐ。すぐ当て直すモードでは条件を当てる', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(createDerivedList(lines), {
+        filter: (line) => line.price >= 200,
+      });
+      derived.insert([
+        { lineId: 'L-4', product: '', price: 0 },
+        { lineId: 'L-5', product: '', price: 500 },
+      ]);
+      expect(lines.ids().get()).toEqual(['L-1', 'L-2', 'L-3', 'L-4', 'L-5']);
+      expect(derived.ids().get()).toEqual(['L-2', 'L-3', 'L-5']);
+    });
+
     it('remove は上流に取り次ぐ', () => {
       const { lines } = setup();
       const derived = createDerivedList(lines, { sort: byPriceDesc });
@@ -295,7 +314,7 @@ describe('createDerivedList', () => {
       expect(lineIds(derived.get())).toEqual(['L-3', 'L-2']);
     });
 
-    it('足された行は条件を当てずに末尾に足し、消えた行は消える', () => {
+    it('ほかから足された行は当て直すまで入らず、消えた行は消える', () => {
       const { lines } = setup();
       const derived = createDerivedList(lines, {
         filter: (line) => line.price >= 200,
@@ -304,11 +323,43 @@ describe('createDerivedList', () => {
         sortRefresh: 'manual',
       });
       expect(lineIds(derived.get())).toEqual(['L-3', 'L-2']);
-      lines.insert([{ lineId: 'L-4', product: '', price: 0 }]);
-      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2', 'L-4']);
+      lines.insert([{ lineId: 'L-4', product: '', price: 999 }]);
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2']);
       lines.remove(['L-3']);
-      expect(lineIds(derived.get())).toEqual(['L-2', 'L-4']);
-      expect(derived.ids().get()).toEqual(['L-2', 'L-4']);
+      expect(lineIds(derived.get())).toEqual(['L-2']);
+      expect(derived.ids().get()).toEqual(['L-2']);
+      derived.refresh();
+      expect(lineIds(derived.get())).toEqual(['L-4', 'L-2']);
+    });
+
+    it('insert でこの段から足した行は、条件を当てずに末尾に入る。refresh() で条件を当てる', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        filter: (line) => line.price >= 200,
+        sort: byPriceDesc,
+        filterRefresh: 'manual',
+        sortRefresh: 'manual',
+      });
+      derived.get();
+      derived.insert([{ lineId: 'L-4', product: '', price: 0 }]);
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2', 'L-4']);
+      // 足した後は、ほかの行と同じく保つ
+      lines.record('L-4').field('product').set('X');
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2', 'L-4']);
+      derived.refresh();
+      expect(lineIds(derived.get())).toEqual(['L-3', 'L-2']);
+    });
+
+    it('insert で、すでにある id の行を足そうとしても、結果に入れない', () => {
+      const { lines } = setup();
+      const derived = createDerivedList(lines, {
+        filter: (line) => line.price >= 200,
+        filterRefresh: 'manual',
+      });
+      derived.get();
+      derived.insert([{ lineId: 'L-1', product: '', price: 0 }]);
+      expect(lineIds(derived.get())).toEqual(['L-2', 'L-3']);
+      expect(lines.ids().get()).toEqual(['L-1', 'L-2', 'L-3']);
     });
 
     it('条件やモードを差し替えると当て直す', () => {
@@ -340,14 +391,109 @@ describe('createDerivedList', () => {
       expect(lineIds(derived.get())).toEqual(['L-2', 'L-3']);
     });
 
-    it('条件が無ければ、当て直さないモードでも上流をそのまま返す', () => {
+    it('条件が無くても、当て直さないモードなら結果を保つ', () => {
       const { lines } = setup();
       const derived = createDerivedList(lines, {
         filterRefresh: 'manual',
         sortRefresh: 'manual',
       });
-      lines.record('L-1').field('price').set(999);
-      expect(derived.get()).toBe(lines.get());
+      expect(lineIds(derived.get())).toEqual(['L-1', 'L-2', 'L-3']);
+      lines.insert([{ lineId: 'L-4', product: '', price: 0 }]);
+      expect(lineIds(derived.get())).toEqual(['L-1', 'L-2', 'L-3']);
+      derived.refresh();
+      expect(lineIds(derived.get())).toEqual(['L-1', 'L-2', 'L-3', 'L-4']);
+    });
+
+    describe('段を重ねたとき', () => {
+      function setupChain(options: DerivedListOptions<Line>) {
+        const { lines } = setup();
+        // システムの段: 価格が 200 以上を、価格の高い順に
+        const system = createDerivedList(lines, {
+          filter: (line) => line.price >= 200,
+          sort: byPriceDesc,
+        });
+        const user = createDerivedList(system, options);
+        return { lines, system, user };
+      }
+
+      it('上流の段が外した行も残り、中身は新しくなる。refresh() で外れる', () => {
+        const { lines, user } = setupChain({ filterRefresh: 'manual' });
+        expect(lineIds(user.get())).toEqual(['L-3', 'L-2']);
+        lines.record('L-2').field('price').set(1);
+        expect(lineIds(user.get())).toEqual(['L-3', 'L-2']);
+        expect(user.get()[1]!.price).toBe(1);
+        user.refresh();
+        expect(lineIds(user.get())).toEqual(['L-3']);
+      });
+
+      it('上流の段が並べ直しても、この段に条件が無ければ保った順のまま動かない', () => {
+        const { lines, user } = setupChain({ sortRefresh: 'manual' });
+        user.get();
+        lines.record('L-2').field('price').set(999);
+        expect(lineIds(user.get())).toEqual(['L-3', 'L-2']);
+        user.refresh();
+        expect(lineIds(user.get())).toEqual(['L-2', 'L-3']);
+      });
+
+      it('上流の段が外した行は、前の結果での位置に残る', () => {
+        const { lines, user } = setupChain({ filterRefresh: 'manual' });
+        lines.record('L-1').field('price').set(250);
+        user.refresh();
+        expect(lineIds(user.get())).toEqual(['L-3', 'L-1', 'L-2']);
+        // L-1 が上流の段から外れ、L-2 が先頭に上がった
+        lines.record('L-1').field('price').set(1);
+        lines.record('L-2').field('price').set(999);
+        expect(lineIds(user.get())).toEqual(['L-2', 'L-3', 'L-1']);
+      });
+
+      it('並べ替えだけを保つときは、上流の段が外した行は消える', () => {
+        const { lines, user } = setupChain({ sortRefresh: 'manual' });
+        user.get();
+        lines.record('L-2').field('price').set(1);
+        expect(lineIds(user.get())).toEqual(['L-3']);
+      });
+
+      it('この段から足した行は、上流の段の条件に合わなくても入る', () => {
+        const { lines, user } = setupChain({ filterRefresh: 'manual' });
+        user.get();
+        user.insert([{ lineId: 'L-4', product: '', price: 0 }]);
+        expect(lineIds(user.get())).toEqual(['L-3', 'L-2', 'L-4']);
+        expect(lines.ids().get()).toContain('L-4');
+        user.refresh();
+        expect(lineIds(user.get())).toEqual(['L-3', 'L-2']);
+      });
+
+      it('上流の段を当て直しても、この段は保つ。この段を当て直すと上流の今の結果に合わせる', () => {
+        const { lines, system, user } = setupChain({ filterRefresh: 'manual' });
+        system.setFilterRefresh('manual');
+        user.get();
+        lines.record('L-1').field('price').set(999);
+        lines.record('L-2').field('price').set(1);
+        system.refresh();
+        expect(lineIds(system.get())).toEqual(['L-1', 'L-3']);
+        expect(lineIds(user.get())).toEqual(['L-3', 'L-2']);
+        user.refresh();
+        expect(lineIds(user.get())).toEqual(['L-1', 'L-3']);
+      });
+
+      it('すぐ当て直すモードでは、上流の段が外している行の編集で購読者を呼ばない', () => {
+        const { lines, user } = setupChain({ sort: byPrice });
+        const listener = vi.fn();
+        user.subscribe(listener);
+        lines.record('L-1').field('product').set('X');
+        expect(listener).not.toHaveBeenCalled();
+      });
+
+      it('当て直さないモードでは、上流の段が外した行の編集も知らせる', () => {
+        const { lines, user } = setupChain({ filterRefresh: 'manual' });
+        const listener = vi.fn();
+        user.subscribe(listener);
+        lines.record('L-2').field('price').set(1);
+        expect(listener).toHaveBeenCalledTimes(1);
+        lines.record('L-2').field('product').set('X');
+        expect(listener).toHaveBeenCalledTimes(2);
+        expect(user.get()[1]!.product).toBe('X');
+      });
     });
 
     it('当て直さないときも、変わった行は知らせる。id の並びは変わらない', () => {

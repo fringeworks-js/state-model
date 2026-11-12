@@ -1,3 +1,4 @@
+import type { FilterFunction, SortFunction } from '@fringeworks/types';
 import type { ListSource } from '../createDerivedList';
 import type {
   ReadonlyModel,
@@ -44,16 +45,18 @@ export type GroupedListOptions<E, K> = {
   /**
    * グループの絞り込みの条件。グループを受け取り、残すなら true を返す
    */
-  filterGroups?: (group: ListGroup<K, E>) => boolean;
+  filterGroups?: FilterFunction<ListGroup<K, E>>;
 
   /**
    * グループの並べ替えの条件。グループを2つ受け取る比較の関数（既定は上流での出現順）
    */
-  sortGroups?: (a: ListGroup<K, E>, b: ListGroup<K, E>) => number;
+  sortGroups?: SortFunction<ListGroup<K, E>>;
 
   /**
    * 上流が変わったときに、グループ分け（`groupBy`）とグループの絞り込みを当て直すか（既定は `'auto'`）。
-   * `'manual'` なら、行が入るグループと、結果に入るグループを保つ（グループのキーを書き換えた行も元のグループに残る）
+   * `'manual'` なら、当て直した時点の、行が入るグループと、結果に入るグループを保つ（グループのキーを書き換えた行や、
+   * 上流の派生モデルが外した行も元のグループに残る）。上流に新しく入ってきた行は、当て直すまで入れない。
+   * `insert` でこの派生モデルから足した行は、今のキーのグループに入れる
    */
   filterRefresh?: RefreshMode;
 
@@ -86,6 +89,13 @@ export interface GroupedList<
    * id の行をすべて消す（上流に取り次ぐ）
    */
   remove(ids: readonly RecordId[]): void;
+
+  /**
+   * 行を元の一覧（データの場所を持つ List のモデル）の末尾に足す。id がすでにあるもの・有効でないものは足さない。
+   * `filterRefresh` が `'manual'` のときも、足した行は今のキーのグループの末尾に入れる（グループが無ければ作り、
+   * グループの絞り込みを当てずに入れる）
+   */
+  insert(records: readonly E[]): void;
 
   /**
    * 上流からの相対的なキーと id のパスで、下位のモデルを取り出す（上流に取り次ぐ。最初の段は行の id）

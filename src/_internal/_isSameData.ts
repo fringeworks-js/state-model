@@ -16,11 +16,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  *
  * - 参照が同じなら、すぐ同じとする（構造の共有で、変わっていない部分はここで止まる）
  * - 違えば、配列は要素ごとに、素のオブジェクトはキーごとに、同じ規則で比べ直す
- * - それ以外（数値・文字列・`Date` など）は `Object.is` で比べる
+ * - `Date` は時刻で比べる（日付の入力で同じ日を選び直すと、別の `Date` になるため）
+ * - それ以外（数値・文字列・クラスのインスタンスなど）は `Object.is` で比べる
  */
 export default function _isSameData(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) {
     return true;
+  }
+  if (a instanceof Date && b instanceof Date) {
+    return Object.is(a.getTime(), b.getTime());
   }
   if (Array.isArray(a) && Array.isArray(b)) {
     return (

@@ -21,8 +21,23 @@ describe('_isSameData', () => {
     expect(_isSameData({ a: undefined }, { b: undefined })).toBe(false);
   });
 
-  it('Date などの組み込みのオブジェクトは参照で比べる', () => {
-    expect(_isSameData(new Date(0), new Date(0))).toBe(false);
+  it('Date は時刻で比べる', () => {
+    expect(_isSameData(new Date(0), new Date(0))).toBe(true);
+    expect(_isSameData({ at: new Date(0) }, { at: new Date(0) })).toBe(true);
+    expect(_isSameData(new Date(0), new Date(1))).toBe(false);
+    expect(_isSameData(new Date(NaN), new Date(NaN))).toBe(true);
+    expect(_isSameData(new Date(0), 0)).toBe(false);
+  });
+
+  it('Date 以外の組み込みのオブジェクトとクラスのインスタンスは参照で比べる', () => {
+    class Point {
+      readonly x: number;
+      constructor(x: number) {
+        this.x = x;
+      }
+    }
+    expect(_isSameData(new Point(1), new Point(1))).toBe(false);
+    expect(_isSameData(new Map(), new Map())).toBe(false);
     expect(_isSameData(0, '0')).toBe(false);
   });
 });
